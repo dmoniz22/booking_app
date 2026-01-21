@@ -1,0 +1,266 @@
+/* Antigravity Booking Styles */
+
+#antigravity-booking-app {
+    max-width: 600px;
+    margin: 0 auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    border: 1px solid #ddd;
+    padding: 20px;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+#antigravity-datepicker {
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: center;
+}
+
+.slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.time-slot {
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    text-align: center;
+    cursor: pointer;
+    background: #f9f9f9;
+    transition: all 0.2s;
+    min-height: 44px; /* Minimum touch target size */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.time-slot:hover {
+    background: #eef;
+    border-color: #0073aa;
+}
+
+.time-slot.selected {
+    background: #0073aa;
+    color: white;
+    border-color: #005177;
+}
+
+.time-slot.in-range {
+    background: #e6f3ff;
+    border-color: #0073aa;
+}
+
+.time-slot.is-overnight {
+    background: #fff3cd;
+    border-color: #ffc107;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px; /* Prevents zoom on iOS */
+    box-sizing: border-box;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.booking-summary {
+    background: #f0f0f1;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.booking-summary p {
+    margin: 5px 0;
+}
+
+.submit-button {
+    background: #0073aa;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    width: 100%;
+    transition: background 0.2s;
+}
+
+.submit-button:hover {
+    background: #005177;
+}
+
+.submit-button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.back-button {
+    background: transparent;
+    border: 1px solid #ccc;
+    color: #666;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 10px;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.back-button:hover {
+    background: #f0f0f1;
+    border-color: #999;
+}
+
+/* Loading Spinner */
+.loading-container {
+    text-align: center;
+    padding: 20px;
+}
+
+.spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #0073aa;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Response Messages */
+.antigravity-success {
+    color: #46b450;
+    padding: 15px;
+    background: #f0fdf4;
+    border: 1px solid #46b450;
+    border-radius: 4px;
+    text-align: center;
+    margin: 10px 0;
+}
+
+.antigravity-success h3 {
+    margin: 0 0 10px 0;
+    color: #46b450;
+}
+
+.antigravity-error {
+    color: #dc3232;
+    padding: 15px;
+    background: #fdf2f2;
+    border: 1px solid #dc3232;
+    border-radius: 4px;
+    text-align: left;
+    margin: 10px 0;
+}
+
+.antigravity-error ul {
+    margin: 10px 0 0 20px;
+    text-align: left;
+}
+
+.antigravity-error li {
+    margin: 5px 0;
+}
+
+/* Range Instruction */
+#range-instruction {
+    font-size: 0.9em;
+    margin-bottom: 10px;
+    text-align: center;
+    color: #666;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    #antigravity-booking-app {
+        max-width: 100%;
+        padding: 15px;
+        margin: 0 10px;
+        border: none;
+        box-shadow: none;
+    }
+    
+    .slots-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .time-slot {
+        padding: 8px;
+        font-size: 14px;
+        min-height: 44px;
+    }
+    
+    .form-group input,
+    .form-group textarea {
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    .submit-button {
+        padding: 14px 20px; /* Larger touch target */
+    }
+    
+    .back-button {
+        padding: 12px 20px;
+    }
+}
+
+/* Small screens */
+@media (max-width: 480px) {
+    .slots-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    #antigravity-booking-app {
+        padding: 10px;
+        margin: 0 5px;
+    }
+}
+
+/* Accessibility - Focus States */
+.time-slot:focus,
+.submit-button:focus,
+.back-button:focus,
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: 2px solid #0073aa;
+    outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .time-slot {
+        border-width: 2px;
+    }
+    
+    .submit-button {
+        border: 2px solid #005177;
+    }
+}

@@ -28,21 +28,27 @@ class Antigravity_Booking_Google_Calendar
             return $this->client;
         }
 
+        // Try to load Composer autoloader if it exists
+        $autoloader = plugin_dir_path(dirname(__FILE__)) . 'vendor/autoload.php';
+        if (file_exists($autoloader)) {
+            require_once $autoloader;
+        }
+
         // Check if Google Client library is available
         if (!class_exists('Google_Client')) {
-            error_log('Google Client library not found. Please install via Composer: composer require google/apiclient');
-            return null;
+            throw new Exception('Google API Client library not found. Please run "composer require google/apiclient:^2.0" in the plugin directory.');
         }
 
         $client = new Google_Client();
         $client->setApplicationName('Simplified Booking');
-        $client->setScopes(Google_Service_Calendar::CALENDAR);
+        $client->setScopes(array(Google_Service_Calendar::CALENDAR));
 
         // Try JSON credentials first (new method)
         $credentials_json = get_option('antigravity_gcal_credentials_json');
 
         if (!empty($credentials_json)) {
-            // Parse JSON credentials
+            // WordPress might add slashes to JSON strings
+            $credentials_json = wp_unslash($credentials_json);
             $credentials_data = json_decode($credentials_json, true);
 
             if (json_last_error() === JSON_ERROR_NONE && !empty($credentials_data)) {
@@ -51,11 +57,10 @@ class Antigravity_Booking_Google_Calendar
                     $this->client = $client;
                     return $this->client;
                 } catch (Exception $e) {
-                    error_log('Error loading JSON credentials: ' . $e->getMessage());
-                    // Fall through to file-based method
+                    throw new Exception('Error in Google JSON Authentication: ' . $e->getMessage());
                 }
             } else {
-                error_log('Invalid JSON credentials format');
+                throw new Exception('Invalid JSON credentials format. JSON Error: ' . json_last_error_msg());
             }
         }
 
@@ -68,12 +73,11 @@ class Antigravity_Booking_Google_Calendar
                 $this->client = $client;
                 return $this->client;
             } catch (Exception $e) {
-                error_log('Error loading credentials file: ' . $e->getMessage());
+                throw new Exception('Error loading credentials file: ' . $e->getMessage());
             }
         }
 
-        error_log('Google Calendar credentials not configured. Please add JSON credentials in settings.');
-        return null;
+        throw new Exception('Google Calendar credentials not configured. Please paste your JSON credentials in settings.');
     }
 
     /**
@@ -151,12 +155,12 @@ class Antigravity_Booking_Google_Calendar
 
         $start_datetime = new Google_Service_Calendar_EventDateTime();
         $start_datetime->setDateTime(date('c', strtotime($start)));
-        $start_datetime->setTimeZone(get_option('timezone_string', 'America/Los_Angeles'));
+        $start_datetime->setTimeZone(get_option('antigravity_booking_timezone', 'America/Los_Angeles'));
         $event->setStart($start_datetime);
 
         $end_datetime = new Google_Service_Calendar_EventDateTime();
         $end_datetime->setDateTime(date('c', strtotime($end)));
-        $end_datetime->setTimeZone(get_option('timezone_string', 'America/Los_Angeles'));
+        $end_datetime->setTimeZone(get_option('antigravity_booking_timezone', 'America/Los_Angeles'));
         $event->setEnd($end_datetime);
 
         $attendee = new Google_Service_Calendar_EventAttendee();
@@ -200,7 +204,7 @@ class Antigravity_Booking_Google_Calendar
     {
         $client = $this->get_client();
         if (!$client) {
-            throw new Exception('Could not initialize Google Client. Check your credentials.');
+            throw new Exception('Could not initialize Google Client. Check your JSON formatting in settings.');
         }
 
         try {
@@ -211,7 +215,13 @@ class Antigravity_Booking_Google_Calendar
             $service->events->listEvents($calendar_id, array('maxResults' => 1));
             return true;
         } catch (Exception $e) {
-            throw new Exception('Google Calendar Error: ' . $e->getMessage());
+            $msg = $e->getMessage();
+            if (strpos($msg, '404') !== false || strpos($msg, 'Not Found') !== false) {
+                $msg = 'Calendar Not Found. Please ensure: 1) The Calendar ID is correct. 2) You have shared the calendar with the service account email.';
+            } elseif (strpos($msg, '403') !== false || strpos($msg, 'Forbidden') !== false) {
+                $msg = 'Permission Denied. Please ensure the service account email has "Make changes to events" permissions on your calendar.';
+            }
+            throw new Exception('Google Calendar Error: ' . $msg);
         }
     }
 }

@@ -223,7 +223,7 @@ class Antigravity_Booking_Settings
         );
         register_setting('antigravity_booking_settings', 'antigravity_gcal_credentials_json', array(
             'type' => 'string',
-            'sanitize_callback' => 'sanitize_textarea_field',
+            'sanitize_callback' => 'trim',
         ));
 
         // Google Calendar Credentials File (Legacy) - Keep for backward compatibility
@@ -510,7 +510,12 @@ class Antigravity_Booking_Settings
                         $file_creds = get_option('antigravity_gcal_credentials_file');
                         
                         if ($json_creds) {
-                            echo '<span style="color: green;">✓ JSON Credentials Present</span>';
+                            $decoded = json_decode(wp_unslash($json_creds), true);
+                            if (json_last_error() === JSON_ERROR_NONE) {
+                                echo '<span style="color: green;">✓ JSON Credentials Valid</span>';
+                            } else {
+                                echo '<span style="color: red;">✗ JSON Credentials Invalid: ' . esc_html(json_last_error_msg()) . '</span>';
+                            }
                         } elseif ($file_creds && file_exists($file_creds)) {
                             echo '<span style="color: green;">✓ File Credentials Found</span>';
                         } else {
@@ -985,5 +990,26 @@ class Antigravity_Booking_Settings
         <textarea name="antigravity_booking_approval_message" rows="10" cols="50" class="large-text"><?php echo esc_textarea($value); ?></textarea>
         <p class="description">Available placeholders: {customer_name}, {start_date}, {end_date}</p>
         <?php
+    }
+
+    /**
+     * AJAX: Test Google Calendar Connection
+     */
+    public function ajax_test_gcal_connection()
+    {
+        check_ajax_referer('antigravity_test_gcal', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+
+        try {
+            require_once dirname(__FILE__) . '/class-antigravity-booking-google-calendar.php';
+            $gcal = new Antigravity_Booking_Google_Calendar();
+            $gcal->test_connection();
+            wp_send_json_success(array('message' => 'Connection successful!'));
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
     }
 }

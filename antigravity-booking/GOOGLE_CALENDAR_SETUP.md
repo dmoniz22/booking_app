@@ -18,19 +18,18 @@ composer require google/apiclient:^2.0
 2. Create a new project or select existing
 3. Enable **Google Calendar API**
 4. Go to **IAM & Admin** → **Service Accounts**
-5. Create a service account
-6. Download the JSON credentials file
-7. Share your Google Calendar with the service account email (found in JSON file)
+5. Create a service account (e.g., `booking-sync@...`)
+6. Go to the **Keys** tab for that service account and click **Add Key** → **Create new key** (JSON)
+7. Download the JSON file. **Open it and copy the entire contents.**
+8. **CRITICAL STEP:** Open your Google Calendar in a browser. Go to **Settings and sharing** for the calendar you want to use. Scroll to **Share with specific people** and add the service account's email address (the one ending in `@...iam.gserviceaccount.com`). Give it **"Make changes to events"** permissions.
 
 ### 3. Configure Plugin Settings
 
 In WordPress admin, go to **Settings** → **Antigravity Booking** and configure:
 
-- **Google Calendar Credentials File**: Upload or specify path to JSON file
-- **Google Calendar ID**: Usually `primary` or your calendar ID
-- **Hourly Rate**: Set your $/hr rate
-- **Customer Instructions**: Text sent to customers after booking submission
-- **Reminder Message**: Text included in reminder emails
+- **Service Account JSON Credentials**: Paste the entire contents of the JSON file you downloaded.
+- **Google Calendar ID**: Your email address (if using your primary calendar) or the unique ID found in the Calendar settings under "Integrate calendar".
+- **Test Connection**: Click the button to verify immediately.
 
 ## Testing
 

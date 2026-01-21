@@ -131,6 +131,8 @@ jQuery(document).ready(function($) {
              });
              
              // Back button keyboard support
+             $('#back-to-cal-2, #back-to-cal').on('click', this.showCalendar.bind(this));
+             
              $('#back-to-cal-2').on('keydown', (e) => {
                  if (e.key === 'Enter' || e.key === ' ') {
                      e.preventDefault();
@@ -199,7 +201,9 @@ jQuery(document).ready(function($) {
         renderSlots: function(slots) {
             if (!slots || slots.length === 0) {
                 this.$slotsGrid.html('<p>No available slots for this date.</p><br><button class="back-button" id="back-to-cal">Back to Calendar</button>');
-                $('#back-to-cal').on('click', this.showCalendar.bind(this));
+                // Binding already handled in bindEvents via delegation or direct, 
+                // but since this is dynamic, let's ensure it works. 
+                // Actually, let's just use the static ones if possible.
                 return;
             }
 
@@ -216,10 +220,7 @@ jQuery(document).ready(function($) {
                          </div>`;
             });
             
-            html += '</div><div style="margin-top:20px; text-align:center;"><p id="range-instruction" style="font-size:0.9em; margin-bottom:10px;">Select a start time and an end time.</p><button class="back-button" id="back-to-cal-2">Pick a different date</button></div>';
-
             this.$slotsGrid.html(html);
-            $('#back-to-cal-2').on('click', this.showCalendar.bind(this));
             
             this.selectionState = {
                 start: null,

@@ -52,12 +52,37 @@ class Antigravity_Booking_Google_Calendar
             $credentials_data = json_decode($credentials_json, true);
 
             if (json_last_error() === JSON_ERROR_NONE && !empty($credentials_data)) {
+                // Fix potential private key formatting issues
+                if (isset($credentials_data['private_key'])) {
+                    $key = $credentials_data['private_key'];
+
+                    // Normalize newlines: handle literal \n strings vs actual newlines
+                    $key = str_replace('\\n', "\n", $key);
+                    // Ensure the key is trimmed of any accidental whitespace
+                    $key = trim($key);
+
+                    // Diagnostic check: point PHP's OpenSSL at it directly to see what it thinks
+                    if (function_exists('openssl_pkey_get_private')) {
+                        $res = openssl_pkey_get_private($key);
+                        if (!$res) {
+                            $openssl_err = openssl_error_string();
+                            throw new Exception("OpenSSL Error: {$openssl_err}. PHP is unable to parse the private key. Please insure you copied the FULL JSON content without any changes.");
+                        }
+                    }
+
+                    $credentials_data['private_key'] = $key;
+                }
+
                 try {
                     $client->setAuthConfig($credentials_data);
                     $this->client = $client;
                     return $this->client;
                 } catch (Exception $e) {
-                    throw new Exception('Error in Google JSON Authentication: ' . $e->getMessage());
+                    $msg = $e->getMessage();
+                    if (strpos($msg, 'OpenSSL') !== false) {
+                        $msg .= ' (Note: Your server\'s OpenSSL version may have specific formatting requirements for private keys. Try re-downloading the JSON file from Google Console.)';
+                    }
+                    throw new Exception('Error in Google JSON Authentication: ' . $msg);
                 }
             } else {
                 throw new Exception('Invalid JSON credentials format. JSON Error: ' . json_last_error_msg());

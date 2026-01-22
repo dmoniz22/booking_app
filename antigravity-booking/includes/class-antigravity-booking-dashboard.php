@@ -224,6 +224,33 @@ class Antigravity_Booking_Dashboard
                     form.submit();
                 }
 
+                // Quick cancel function
+                function quickCancel(bookingId, nonce) {
+                    if (!confirm('Cancel this booking? This will also remove it from Google Calendar if approved.')) return;
+
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '<?php echo admin_url('admin-post.php'); ?>';
+
+                    const fields = [
+                        { name: 'action', value: 'change_booking_status' },
+                        { name: 'booking_id', value: bookingId },
+                        { name: 'new_status', value: 'cancelled' },
+                        { name: '_wpnonce', value: nonce }
+                    ];
+
+                    fields.forEach(field => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = field.name;
+                        input.value = field.value;
+                        form.appendChild(input);
+                    });
+
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+
                 // Sync bulk action selectors
                 document.getElementById('bulk-action-selector-top')?.addEventListener('change', function () {
                     document.getElementById('bulk-action-selector-bottom').value = this.value;
@@ -266,6 +293,12 @@ class Antigravity_Booking_Dashboard
                 <a href="<?php echo admin_url('admin.php?page=antigravity-booking&status=expired'); ?>"
                     class="<?php echo $status_filter === 'expired' ? 'current' : ''; ?>">
                     Expired <span class="count">(<?php echo $counts['expired']; ?>)</span>
+                </a> |
+            </li>
+            <li class="cancelled">
+                <a href="<?php echo admin_url('admin.php?page=antigravity-booking&status=cancelled'); ?>"
+                    class="<?php echo $status_filter === 'cancelled' ? 'current' : ''; ?>">
+                    Cancelled <span class="count">(<?php echo $counts['cancelled'] ?? 0; ?>)</span>
                 </a>
             </li>
         </ul>
@@ -319,6 +352,7 @@ class Antigravity_Booking_Dashboard
                         <option value="-1">Bulk Actions</option>
                         <option value="approve">Approve</option>
                         <option value="expire">Mark as Expired</option>
+                        <option value="cancelled">Cancel</option>
                         <option value="delete">Delete</option>
                     </select>
                     <input type="submit" class="button action" value="Apply">
@@ -360,6 +394,7 @@ class Antigravity_Booking_Dashboard
                                 'pending_review' => '<span style="color: #d63638;">Pending Review</span>',
                                 'approved' => '<span style="color: #00a32a;">Approved</span>',
                                 'expired' => '<span style="color: #999;">Expired</span>',
+                                'cancelled' => '<span style="color: #d63638;">Cancelled</span>',
                                 'draft' => '<span style="color: #999;">Draft</span>',
                             );
                             ?>
@@ -384,6 +419,13 @@ class Antigravity_Booking_Dashboard
 
                                     <?php if ($status === 'approved'): ?>
                                         <span style="color: #00a32a;">✓ Confirmed</span>
+                                        <button type="button" class="button button-small"
+                                            onclick="quickCancel(<?php echo $booking->ID; ?>, '<?php echo wp_create_nonce('change_booking_status_' . $booking->ID); ?>')">Cancel</button>
+                                    <?php endif; ?>
+
+                                    <?php if ($status === 'pending_review'): ?>
+                                        <button type="button" class="button button-small"
+                                            onclick="quickCancel(<?php echo $booking->ID; ?>, '<?php echo wp_create_nonce('change_booking_status_' . $booking->ID); ?>')">Cancel</button>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -399,6 +441,7 @@ class Antigravity_Booking_Dashboard
                         <option value="-1">Bulk Actions</option>
                         <option value="approve">Approve</option>
                         <option value="expire">Mark as Expired</option>
+                        <option value="cancelled">Cancel</option>
                         <option value="delete">Delete</option>
                     </select>
                     <input type="submit" class="button action" value="Apply">
@@ -612,7 +655,10 @@ class Antigravity_Booking_Dashboard
             $bulk_action = isset($_POST['bulk_action_bottom']) ? sanitize_text_field($_POST['bulk_action_bottom']) : '';
         }
 
-        wp_redirect(admin_url('admin.php?page=antigravity-booking&error=no_selection'));
+        if (empty($booking_ids) || empty($bulk_action) || $bulk_action === '-1') {
+            wp_redirect(admin_url('admin.php?page=antigravity-booking&error=no_selection'));
+            exit;
+        }
 
         foreach ($booking_ids as $booking_id) {
             if (!current_user_can('edit_post', $booking_id)) {
@@ -625,6 +671,9 @@ class Antigravity_Booking_Dashboard
                     break;
                 case 'expire':
                     wp_update_post(array('ID' => $booking_id, 'post_status' => 'expired'));
+                    break;
+                case 'cancelled':
+                    wp_update_post(array('ID' => $booking_id, 'post_status' => 'cancelled'));
                     break;
                 case 'delete':
                     wp_delete_post($booking_id, true);

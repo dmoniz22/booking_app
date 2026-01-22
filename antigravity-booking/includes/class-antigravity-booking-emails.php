@@ -36,10 +36,14 @@ class Antigravity_Booking_Emails
         //    $this->send_new_booking_email_to_admin($post->ID);
         // }
 
-        // Booking approved
-        if ($new_status === 'approved' && $old_status !== 'approved') {
-            $this->send_approval_email_to_customer($post->ID);
-            $this->schedule_reminders($post->ID);
+        try {
+            // Booking approved
+            if ($new_status === 'approved' && $old_status !== 'approved') {
+                $this->send_approval_email_to_customer($post->ID);
+                $this->schedule_reminders($post->ID);
+            }
+        } catch (Throwable $t) {
+            error_log("Antigravity Booking Error in handle_status_change: " . $t->getMessage());
         }
     }
 
@@ -154,13 +158,22 @@ class Antigravity_Booking_Emails
 
         $headers = array('Content-Type: text/plain; charset=UTF-8');
 
-        // Generate .ics file
-        $ics_file = $this->generate_ics_file($booking_id);
+        try {
+            // Generate .ics file
+            $ics_file = $this->generate_ics_file($booking_id);
 
-        wp_mail($customer_email, $subject, $message, $headers, array($ics_file));
-
-        // Delete temp file
-        @unlink($ics_file);
+            if ($ics_file && file_exists($ics_file)) {
+                wp_mail($customer_email, $subject, $message, $headers, array($ics_file));
+                // Delete temp file
+                @unlink($ics_file);
+            } else {
+                wp_mail($customer_email, $subject, $message, $headers);
+            }
+        } catch (Throwable $t) {
+            error_log("Antigravity Booking Error sending approval email: " . $t->getMessage());
+            // Try to send without attachment if generation failed
+            wp_mail($customer_email, $subject, $message, $headers);
+        }
 
         error_log("Sent approval email to customer: {$customer_email}");
     }
@@ -174,8 +187,18 @@ class Antigravity_Booking_Emails
         $start = get_post_meta($booking_id, '_booking_start_datetime', true);
         $end = get_post_meta($booking_id, '_booking_end_datetime', true);
 
-        $start_dt = new DateTime($start);
-        $end_dt = new DateTime($end);
+        if (empty($start) || empty($end)) {
+            error_log("Antigravity Booking: Missing dates for ICS generation (ID: {$booking_id})");
+            return false;
+        }
+
+        try {
+            $start_dt = new DateTime($start);
+            $end_dt = new DateTime($end);
+        } catch (Exception $e) {
+            error_log("Antigravity Booking: Invalid dates for ICS generation: {$start} / {$end}");
+            return false;
+        }
 
         $ics_start = $start_dt->format('Ymd\THis');
         $ics_end = $end_dt->format('Ymd\THis');
@@ -195,8 +218,16 @@ class Antigravity_Booking_Emails
         $ics_content .= "END:VCALENDAR\r\n";
 
         $temp_dir = sys_get_temp_dir();
+        if (!is_writable($temp_dir)) {
+            error_log("Antigravity Booking: Temp directory not writable: {$temp_dir}");
+            return false;
+        }
+
         $ics_file = $temp_dir . "/booking-{$booking_id}.ics";
-        file_put_contents($ics_file, $ics_content);
+        if (false === file_put_contents($ics_file, $ics_content)) {
+            error_log("Antigravity Booking: Failed to write ICS file: {$ics_file}");
+            return false;
+        }
 
         return $ics_file;
     }

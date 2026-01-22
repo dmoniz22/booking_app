@@ -28,81 +28,108 @@ class Antigravity_Booking_Google_Calendar
             return $this->client;
         }
 
-        // Try to load Composer autoloader if it exists
-        $autoloader = plugin_dir_path(dirname(__FILE__)) . 'vendor/autoload.php';
-        if (file_exists($autoloader)) {
-            require_once $autoloader;
-        }
-
         // Check if Google Client library is available
         if (!class_exists('Google_Client')) {
             throw new Exception('Google API Client library not found. Please run "composer require google/apiclient:^2.0" in the plugin directory.');
         }
 
-        $client = new Google_Client();
-        $client->setApplicationName('Simplified Booking');
-        $client->setScopes(array(Google_Service_Calendar::CALENDAR));
+        try {
+            error_log('Antigravity Booking: Instantiating Google_Client');
+            $client = new Google_Client();
+            $client->setApplicationName('Simplified Booking');
+            // Use explicit scope string to avoid dependency on service class constants during init
+            $client->setScopes(array('https://www.googleapis.com/auth/calendar'));
+            error_log('Antigravity Booking: Google_Client instantiated successfully');
+        } catch (Throwable $t) {
+            error_log('Antigravity Booking: FAILED to instantiate Google_Client: ' . $t->getMessage() . ' in ' . $t->getFile() . ':' . $t->getLine());
+            throw new Exception('Google Client Initialization Failed: ' . $t->getMessage());
+        }
 
-        // Try JSON credentials first (new method)
+        $auth_error = '';
+
+        // 1. Try file-based credentials first (most reliable in mangled environments)
+        $credentials_file = get_option('antigravity_gcal_credentials_file');
+        if (!empty($credentials_file)) {
+            if (file_exists($credentials_file)) {
+                try {
+                    error_log('Antigravity Booking: Attempting authentication with file path: ' . $credentials_file);
+                    $client->setAuthConfig($credentials_file);
+                    $this->client = $client;
+                    return $this->client;
+                } catch (Exception $e) {
+                    $auth_error = 'File Auth: ' . $e->getMessage();
+                    error_log('Antigravity Booking: File Auth Failed: ' . $e->getMessage());
+                }
+            } else {
+                $auth_error = 'File not found at: ' . $credentials_file;
+                error_log('Antigravity Booking: ' . $auth_error);
+            }
+        }
+
+        // 2. Try JSON credentials (new method)
         $credentials_json = get_option('antigravity_gcal_credentials_json');
 
         if (!empty($credentials_json)) {
+            error_log('Antigravity Booking: JSON credentials found, attempting to process.');
             // WordPress might add slashes to JSON strings
             $credentials_json = wp_unslash($credentials_json);
             $credentials_data = json_decode($credentials_json, true);
 
             if (json_last_error() === JSON_ERROR_NONE && !empty($credentials_data)) {
+                error_log('Antigravity Booking: JSON decoded successfully.');
                 // Fix potential private key formatting issues
                 if (isset($credentials_data['private_key'])) {
+                    error_log('Antigravity Booking: Private key found, normalizing.');
                     $key = $credentials_data['private_key'];
 
-                    // Normalize newlines: handle literal \n strings vs actual newlines
+                    // 1. Double Unslash: Handle cases where it was triple-slashed then double-unslashed
+                    $key = str_replace('\\\\n', "\n", $key);
                     $key = str_replace('\\n', "\n", $key);
-                    // Ensure the key is trimmed of any accidental whitespace
-                    $key = trim($key);
 
-                    // Diagnostic check: point PHP's OpenSSL at it directly to see what it thinks
-                    if (function_exists('openssl_pkey_get_private')) {
-                        $res = openssl_pkey_get_private($key);
-                        if (!$res) {
-                            $openssl_err = openssl_error_string();
-                            throw new Exception("OpenSSL Error: {$openssl_err}. PHP is unable to parse the private key. Please insure you copied the FULL JSON content without any changes.");
-                        }
-                    }
+                    // 2. Structural Recovery: If backslashes were stripped, `\n` becomes literal `n`.
+                    // We can safely heal the headers and footers.
+                    $key = str_replace('-----BEGIN PRIVATE KEY-----n', "-----BEGIN PRIVATE KEY-----\n", $key);
+                    $key = str_replace('n-----END PRIVATE KEY-----', "\n-----END PRIVATE KEY-----", $key);
+
+                    // Remove any trailing literal 'n' at the very end of the string
+                    $key = rtrim($key, "n ");
+
+                    // 3. Remove non-breaking spaces
+                    $key = str_replace(array("\xc2\xa0", "\xa0"), ' ', $key);
+
+                    // 4. Normalize line endings (remove \r)
+                    $key = str_replace("\r", "", $key);
+                    $key = trim($key);
 
                     $credentials_data['private_key'] = $key;
                 }
 
                 try {
+                    error_log('Antigravity Booking: Calling setAuthConfig().');
                     $client->setAuthConfig($credentials_data);
+                    error_log('Antigravity Booking: setAuthConfig() success.');
                     $this->client = $client;
                     return $this->client;
                 } catch (Exception $e) {
-                    $msg = $e->getMessage();
-                    if (strpos($msg, 'OpenSSL') !== false) {
-                        $msg .= ' (Note: Your server\'s OpenSSL version may have specific formatting requirements for private keys. Try re-downloading the JSON file from Google Console.)';
-                    }
-                    throw new Exception('Error in Google JSON Authentication: ' . $msg);
+                    $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Auth: ' . $e->getMessage();
+                    error_log('Antigravity Booking: JSON Auth Failed: ' . $e->getMessage());
+                } catch (Throwable $t) {
+                    $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Auth Throwable: ' . $t->getMessage();
+                    error_log('Antigravity Booking: JSON Auth Throwable: ' . $t->getMessage());
                 }
             } else {
-                throw new Exception('Invalid JSON credentials format. JSON Error: ' . json_last_error_msg());
+                $json_err = json_last_error_msg();
+                $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Format: ' . $json_err;
+                error_log('Antigravity Booking: JSON Parsing Failed: ' . $json_err);
             }
         }
 
-        // Fall back to file-based credentials (legacy method)
-        $credentials_file = get_option('antigravity_gcal_credentials_file');
-
-        if (!empty($credentials_file) && file_exists($credentials_file)) {
-            try {
-                $client->setAuthConfig($credentials_file);
-                $this->client = $client;
-                return $this->client;
-            } catch (Exception $e) {
-                throw new Exception('Error loading credentials file: ' . $e->getMessage());
-            }
+        // If both failed or are empty
+        if ($auth_error) {
+            throw new Exception('Connection Failed: ' . $auth_error);
         }
 
-        throw new Exception('Google Calendar credentials not configured. Please paste your JSON credentials in settings.');
+        throw new Exception('Google Calendar credentials not configured. Please paste your JSON in settings or provide a valid file path.');
     }
 
     /**
@@ -127,46 +154,54 @@ class Antigravity_Booking_Google_Calendar
             return;
         }
 
-        $client = $this->get_client();
-        if (!$client) {
-            return;
-        }
+        try {
+            $client = $this->get_client();
+            if (!$client) {
+                return;
+            }
 
-        $service = new Google_Service_Calendar($client);
-        $calendar_id = get_option('antigravity_gcal_calendar_id', 'primary');
+            $service = new Google_Service_Calendar($client);
+            $calendar_id = get_option('antigravity_gcal_calendar_id', 'primary');
 
-        // Get booking details
-        $customer_name = get_post_meta($post->ID, '_customer_name', true);
-        $customer_email = get_post_meta($post->ID, '_customer_email', true);
-        $start = get_post_meta($post->ID, '_booking_start_datetime', true);
-        $end = get_post_meta($post->ID, '_booking_end_datetime', true);
-        $cost = get_post_meta($post->ID, '_estimated_cost', true);
+            // Get booking details
+            $customer_name = get_post_meta($post->ID, '_customer_name', true);
+            $customer_email = get_post_meta($post->ID, '_customer_email', true);
+            $start = get_post_meta($post->ID, '_booking_start_datetime', true);
+            $end = get_post_meta($post->ID, '_booking_end_datetime', true);
+            $cost = get_post_meta($post->ID, '_estimated_cost', true);
 
-        // Check if event already exists
-        $existing_event_id = get_post_meta($post->ID, '_gcal_event_id', true);
+            // Check if event already exists
+            $existing_event_id = get_post_meta($post->ID, '_gcal_event_id', true);
 
-        if ($existing_event_id) {
-            // Update existing event
-            try {
-                $event = $service->events->get($calendar_id, $existing_event_id);
+            if ($existing_event_id) {
+                // Update existing event
+                try {
+                    $event = $service->events->get($calendar_id, $existing_event_id);
+                    $this->update_event_details($event, $customer_name, $customer_email, $start, $end, $cost);
+                    $service->events->update($calendar_id, $existing_event_id, $event);
+                    error_log("Antigravity Booking: Updated Google Calendar event: {$existing_event_id}");
+                } catch (Exception $e) {
+                    error_log("Antigravity Booking: Error updating Google Calendar event: " . $e->getMessage());
+                }
+            } else {
+                // Create new event
+                $event = new Google_Service_Calendar_Event();
                 $this->update_event_details($event, $customer_name, $customer_email, $start, $end, $cost);
-                $service->events->update($calendar_id, $existing_event_id, $event);
-                error_log("Updated Google Calendar event: {$existing_event_id}");
-            } catch (Exception $e) {
-                error_log("Error updating Google Calendar event: " . $e->getMessage());
-            }
-        } else {
-            // Create new event
-            $event = new Google_Service_Calendar_Event();
-            $this->update_event_details($event, $customer_name, $customer_email, $start, $end, $cost);
 
-            try {
-                $created_event = $service->events->insert($calendar_id, $event);
-                update_post_meta($post->ID, '_gcal_event_id', $created_event->getId());
-                error_log("Created Google Calendar event: " . $created_event->getId());
-            } catch (Exception $e) {
-                error_log("Error creating Google Calendar event: " . $e->getMessage());
+                try {
+                    $created_event = $service->events->insert($calendar_id, $event);
+                    update_post_meta($post->ID, '_gcal_event_id', $created_event->getId());
+                    error_log("Antigravity Booking: Created Google Calendar event: " . $created_event->getId());
+                } catch (Exception $e) {
+                    error_log("Antigravity Booking: Error creating Google Calendar event: " . $e->getMessage());
+                }
             }
+        } catch (Error $e) {
+            error_log("Antigravity Booking: Critical Error during GCal Sync: " . $e->getMessage());
+        } catch (Exception $e) {
+            error_log("Antigravity Booking: Exception during GCal Sync: " . $e->getMessage());
+        } catch (Throwable $t) {
+            error_log("Antigravity Booking: Throwable during GCal Sync: " . $t->getMessage());
         }
     }
 
@@ -198,25 +233,27 @@ class Antigravity_Booking_Google_Calendar
      */
     public function delete_from_calendar($booking_id)
     {
-        $client = $this->get_client();
-        if (!$client) {
-            return;
-        }
-
-        $event_id = get_post_meta($booking_id, '_gcal_event_id', true);
-        if (!$event_id) {
-            return;
-        }
-
-        $service = new Google_Service_Calendar($client);
-        $calendar_id = get_option('antigravity_gcal_calendar_id', 'primary');
-
         try {
+            $client = $this->get_client();
+            if (!$client) {
+                return;
+            }
+
+            $event_id = get_post_meta($booking_id, '_gcal_event_id', true);
+            if (!$event_id) {
+                return;
+            }
+
+            $service = new Google_Service_Calendar($client);
+            $calendar_id = get_option('antigravity_gcal_calendar_id', 'primary');
+
             $service->events->delete($calendar_id, $event_id);
             delete_post_meta($booking_id, '_gcal_event_id');
-            error_log("Deleted Google Calendar event: {$event_id}");
+            error_log("Antigravity Booking: Deleted Google Calendar event: {$event_id}");
         } catch (Exception $e) {
-            error_log("Error deleting Google Calendar event: " . $e->getMessage());
+            error_log("Antigravity Booking: Error deleting Google Calendar event: " . $e->getMessage());
+        } catch (Throwable $t) {
+            error_log("Antigravity Booking: Throwable deleting Google Calendar event: " . $t->getMessage());
         }
     }
 

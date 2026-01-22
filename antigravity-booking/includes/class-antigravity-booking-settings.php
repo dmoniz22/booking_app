@@ -11,6 +11,7 @@ class Antigravity_Booking_Settings
         add_action('admin_menu', array($this, 'add_plugin_page'), 11);
         add_action('admin_init', array($this, 'register_settings'));
         add_action('wp_ajax_antigravity_test_gcal', array($this, 'ajax_test_gcal_connection'));
+        add_action('admin_footer', array($this, 'render_admin_scripts'));
     }
 
     /**
@@ -557,26 +558,56 @@ class Antigravity_Booking_Settings
                 <li>Create a page with <code>[antigravity_booking_calendar]</code> shortcode</li>
             </ol>
         </div>
+        <?php
+    }
+
+    /**
+     * Render admin scripts in footer for better reliability
+     */
+    public function render_admin_scripts()
+    {
+        $screen = get_current_screen();
+        // Be more inclusive with screen ID to avoid missing it
+        if (!$screen || strpos($screen->id, 'antigravity-booking-settings') === false) {
+            return;
+        }
+        ?>
         <script>
         jQuery(document).ready(function($) {
+            console.log('Antigravity Settings Script Loaded');
+
+            $('#antigravity-clear-json').on('click', function(e) {
+                if(confirm('Are you sure you want to clear the JSON credentials? This will allow you to use the Legacy File Path instead.')) {
+                    $('textarea[name="antigravity_gcal_credentials_json"]').val('');
+                    $('#submit').click(); // Auto-save to clear database
+                }
+            });
+
             $('#antigravity-test-gcal').on('click', function(e) {
                 e.preventDefault();
                 const btn = $(this);
                 const status = $('#antigravity-gcal-test-status');
                 
+                console.log('Test Connection clicked');
                 btn.prop('disabled', true).text('Testing...');
-                status.text('').removeClass('updated error');
+                status.text('... Connecting to Google API ...').css('color', 'orange');
 
                 $.post(ajaxurl, {
                     action: 'antigravity_test_gcal',
                     nonce: '<?php echo wp_create_nonce("antigravity_test_gcal"); ?>'
                 }, function(response) {
+                    console.log('AJAX Response:', response);
                     btn.prop('disabled', false).text('Test Connection');
                     if (response.success) {
                         status.text('✓ ' + response.data.message).css('color', 'green');
                     } else {
-                        status.text('✗ ' + response.data.message).css('color', 'red');
+                        const errorMsg = response.data ? response.data.message : 'Unknown Server Error (Check logs)';
+                        status.text('✗ ' + errorMsg).css('color', 'red');
                     }
+                }).fail(function(xhr) {
+                    console.error('AJAX Failure:', xhr);
+                    btn.prop('disabled', false).text('Test Connection');
+                    status.text('✗ Server Request Failed (Status: ' + xhr.status + ')').css('color', 'red');
                 });
             });
         });
@@ -649,6 +680,7 @@ class Antigravity_Booking_Settings
         <textarea name="antigravity_gcal_credentials_json" rows="10" cols="50" class="large-text code" placeholder='{"type": "service_account", ...}'><?php echo esc_textarea($value); ?></textarea>
         <p class="description">Paste the entire contents of your Google Service Account JSON file here.</p>
         <button type="button" id="antigravity-test-gcal" class="button button-secondary">Test Connection</button>
+        <button type="button" id="antigravity-clear-json" class="button button-link-delete" style="color: #d63638; text-decoration: none; margin-left: 10px;">Clear JSON</button>
         <span id="antigravity-gcal-test-status" style="margin-left: 10px; font-weight: bold;"></span>
         <?php
     }
@@ -997,6 +1029,18 @@ class Antigravity_Booking_Settings
      */
     public function ajax_test_gcal_connection()
     {
+        // Force errors to be logged but NOT displayed (prevents breaking JSON)
+        @ini_set('display_errors', 0);
+        
+        // Capture any fatal errors that might occur during the check
+        register_shutdown_function(function() {
+            $error = error_get_last();
+            if ($error && ($error['type'] === E_ERROR || $error['type'] === E_PARSE || $error['type'] === E_COMPILE_ERROR)) {
+                error_log('Antigravity Booking: FATAL ERROR during AJAX: ' . print_r($error, true));
+                // We can't easily return JSON here if output already started, but we logged it
+            }
+        });
+
         check_ajax_referer('antigravity_test_gcal', 'nonce');
 
         if (!current_user_can('manage_options')) {
@@ -1004,12 +1048,46 @@ class Antigravity_Booking_Settings
         }
 
         try {
-            require_once dirname(__FILE__) . '/class-antigravity-booking-google-calendar.php';
+            error_log('Antigravity Booking: AJAX Connection Test Started');
+            
+            // 1. Ensure the class file exists and is loaded
+            $path = dirname(__FILE__) . '/class-antigravity-booking-google-calendar.php';
+            if (!file_exists($path)) {
+                error_log('Antigravity Booking: FILE NOT FOUND: ' . $path);
+                throw new Exception('File not found: ' . $path);
+            }
+            require_once $path;
+
+            if (!class_exists('Antigravity_Booking_Google_Calendar')) {
+                 throw new Exception('Antigravity_Booking_Google_Calendar class not found after require.');
+            }
+
+            // 2. Initialize
+            error_log('Antigravity Booking: Initializing GCal Class');
             $gcal = new Antigravity_Booking_Google_Calendar();
+            
+            // 3. Test
+            error_log('Antigravity Booking: Calling test_connection()');
             $gcal->test_connection();
-            wp_send_json_success(array('message' => 'Connection successful!'));
+            
+            error_log('Antigravity Booking: AJAX Connection Test Success');
+            
+            // Clean output buffer before sending success
+            if (ob_get_length()) ob_clean();
+            wp_send_json_success(array('message' => 'Connection successful! (Google Calendar is reachable)'));
+        } catch (Error $e) {
+            error_log('Antigravity Booking: AJAX Connection Test FATAL: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if (ob_get_length()) ob_clean();
+            wp_send_json_error(array('message' => 'PHP Fatal Error: ' . $e->getMessage()));
         } catch (Exception $e) {
+            error_log('Antigravity Booking: AJAX Connection Test EXCEPTION: ' . $e->getMessage());
+            if (ob_get_length()) ob_clean();
             wp_send_json_error(array('message' => $e->getMessage()));
+        } catch (Throwable $t) {
+            error_log('Antigravity Booking: AJAX Connection Test THROWABLE: ' . $t->getMessage() . ' in ' . $t->getFile() . ':' . $t->getLine());
+            if (ob_get_length()) ob_clean();
+            wp_send_json_error(array('message' => 'Generic Error: ' . $t->getMessage()));
         }
+        exit;
     }
 }

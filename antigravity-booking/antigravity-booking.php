@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Simplified Booking
  * Description:       Custom booking plugin with time blocks, cost estimation, and Google Calendar sync.
- * Version:           1.1.3
+ * Version:           1.1.12
  * Author:            monizes
  * Text Domain:       antigravity-booking
  * Requires at least: 5.0
@@ -16,7 +16,13 @@ if (!defined('WPINC')) {
 	die;
 }
 
-define('ANTIGRAVITY_BOOKING_VERSION', '1.1.3');
+define('ANTIGRAVITY_BOOKING_VERSION', '1.1.12');
+
+// Load Composer autoloader if it exists
+$autoloader = plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+if (file_exists($autoloader)) {
+	require_once $autoloader;
+}
 
 /**
  * The code that runs during plugin activation.

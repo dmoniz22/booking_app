@@ -78,6 +78,14 @@ class Antigravity_Booking_CPT
 			'show_in_admin_status_list' => true,
 			'label_count' => _n_noop('Expired <span class="count">(%s)</span>', 'Expired <span class="count">(%s)</span>'),
 		));
+
+		register_post_status('cancelled', array(
+			'label' => 'Cancelled',
+			'public' => false,
+			'show_in_admin_all_list' => true,
+			'show_in_admin_status_list' => true,
+			'label_count' => _n_noop('Cancelled <span class="count">(%s)</span>', 'Cancelled <span class="count">(%s)</span>'),
+		));
 	}
 
 	/**

@@ -618,22 +618,33 @@ class Antigravity_Booking_Dashboard
      */
     public function handle_status_change()
     {
+        // Start output buffering to prevent any output before redirect
+        // This prevents "headers already sent" errors from Google Calendar sync
+        ob_start();
+        
         $booking_id = isset($_POST['booking_id']) ? intval($_POST['booking_id']) : 0;
         $new_status = isset($_POST['new_status']) ? sanitize_text_field($_POST['new_status']) : '';
 
         if (!wp_verify_nonce($_POST['_wpnonce'], 'change_booking_status_' . $booking_id)) {
+            ob_end_clean();
             wp_die('Security check failed');
         }
 
         if (!current_user_can('edit_post', $booking_id)) {
+            ob_end_clean();
             wp_die('You do not have permission to edit this booking');
         }
 
+        // Update post status (this triggers transition_post_status hook which may output errors)
         wp_update_post(array(
             'ID' => $booking_id,
             'post_status' => $new_status,
         ));
 
+        // Clean any output that may have occurred during hooks
+        ob_end_clean();
+        
+        // Now safe to redirect
         wp_redirect(admin_url('admin.php?page=antigravity-booking&updated=1'));
         exit;
     }
@@ -643,7 +654,11 @@ class Antigravity_Booking_Dashboard
      */
     public function handle_bulk_action()
     {
+        // Start output buffering to prevent any output before redirect
+        ob_start();
+        
         if (!wp_verify_nonce($_POST['_wpnonce'], 'bulk_booking_action')) {
+            ob_end_clean();
             wp_die('Security check failed');
         }
 
@@ -656,6 +671,7 @@ class Antigravity_Booking_Dashboard
         }
 
         if (empty($booking_ids) || empty($bulk_action) || $bulk_action === '-1') {
+            ob_end_clean();
             wp_redirect(admin_url('admin.php?page=antigravity-booking&error=no_selection'));
             exit;
         }
@@ -681,6 +697,9 @@ class Antigravity_Booking_Dashboard
             }
         }
 
+        // Clean any output that may have occurred during hooks
+        ob_end_clean();
+        
         wp_redirect(admin_url('admin.php?page=antigravity-booking&bulk_updated=' . count($booking_ids)));
         exit;
     }

@@ -36,7 +36,12 @@ class Antigravity_Booking
         $this->cpt = new Antigravity_Booking_CPT();
         $this->availability = new Antigravity_Booking_Availability();
         $this->emails = new Antigravity_Booking_Emails();
-        $this->google_calendar = new Antigravity_Booking_Google_Calendar();
+        
+        // Google Calendar Integration - Temporarily disabled due to caching issues
+        // Will be replaced with OAuth in next version
+        // Uncomment these lines after server cache clears or when OAuth is implemented:
+        // $this->google_calendar = new Antigravity_Booking_Google_Calendar();
+        // $this->google_calendar->init(); // Initialize hooks
 
         // Frontend Init
         $this->shortcode = new Antigravity_Booking_Shortcode();

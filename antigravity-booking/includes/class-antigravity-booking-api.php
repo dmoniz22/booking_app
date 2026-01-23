@@ -21,8 +21,12 @@ class Antigravity_Booking_API
     
     /**
      * Maximum requests per window
+     * Increased from 10 to 30 to allow normal user behavior:
+     * - 10-15 availability checks (checking different dates)
+     * - 3-5 booking attempts (form validation errors)
+     * - Buffer for page refreshes
      */
-    const MAX_REQUESTS_PER_WINDOW = 10;
+    const MAX_REQUESTS_PER_WINDOW = 30;
 
     public function __construct()
     {

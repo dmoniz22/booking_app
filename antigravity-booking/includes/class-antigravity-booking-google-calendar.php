@@ -14,6 +14,16 @@ class Antigravity_Booking_Google_Calendar
 
     public function __construct()
     {
+        // Constructor should not have side effects
+        // Hook registration moved to init() method
+    }
+
+    /**
+     * Initialize hooks
+     * Call this method after instantiation to register WordPress hooks
+     */
+    public function init()
+    {
         add_action('transition_post_status', array($this, 'sync_to_calendar'), 20, 3);
     }
 
@@ -82,26 +92,33 @@ class Antigravity_Booking_Google_Calendar
                     error_log('Antigravity Booking: Private key found, normalizing.');
                     $key = $credentials_data['private_key'];
 
-                    // 1. Double Unslash: Handle cases where it was triple-slashed then double-unslashed
-                    $key = str_replace('\\\\n', "\n", $key);
-                    $key = str_replace('\\n', "\n", $key);
-
-                    // 2. Structural Recovery: If backslashes were stripped, `\n` becomes literal `n`.
-                    // We can safely heal the headers and footers.
-                    $key = str_replace('-----BEGIN PRIVATE KEY-----n', "-----BEGIN PRIVATE KEY-----\n", $key);
-                    $key = str_replace('n-----END PRIVATE KEY-----', "\n-----END PRIVATE KEY-----", $key);
-
-                    // Remove any trailing literal 'n' at the very end of the string
-                    $key = rtrim($key, "n ");
-
-                    // 3. Remove non-breaking spaces
-                    $key = str_replace(array("\xc2\xa0", "\xa0"), ' ', $key);
-
-                    // 4. Normalize line endings (remove \r)
-                    $key = str_replace("\r", "", $key);
+                    // Only normalize if key appears to have escaping issues
+                    // Check for literal \n sequences (not actual newlines)
+                    if (strpos($key, '\\n') !== false) {
+                        error_log('Antigravity Booking: Normalizing escaped newlines in private key');
+                        $key = str_replace('\\n', "\n", $key);
+                    }
+                    
+                    // Normalize line endings (Windows to Unix)
+                    $key = str_replace("\r\n", "\n", $key);
+                    $key = str_replace("\r", "\n", $key);
+                    
+                    // Ensure proper header format (add newline after header if missing)
+                    if (preg_match('/^-----BEGIN PRIVATE KEY-----[^\n]/', $key)) {
+                        $key = str_replace('-----BEGIN PRIVATE KEY-----', "-----BEGIN PRIVATE KEY-----\n", $key);
+                    }
+                    
+                    // Ensure proper footer format (add newline before footer if missing)
+                    if (preg_match('/[^\n]-----END PRIVATE KEY-----$/', $key)) {
+                        $key = str_replace('-----END PRIVATE KEY-----', "\n-----END PRIVATE KEY-----", $key);
+                    }
+                    
+                    // Final trim (safe - only removes leading/trailing whitespace)
                     $key = trim($key);
-
+                    
                     $credentials_data['private_key'] = $key;
+                    
+                    error_log('Antigravity Booking: Private key normalized successfully');
                 }
 
                 try {

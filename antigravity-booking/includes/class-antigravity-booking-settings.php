@@ -1029,6 +1029,9 @@ class Antigravity_Booking_Settings
      */
     public function ajax_test_gcal_connection()
     {
+        // Start output buffering to catch any stray output
+        ob_start();
+        
         // Force errors to be logged but NOT displayed (prevents breaking JSON)
         @ini_set('display_errors', 0);
         
@@ -1044,6 +1047,7 @@ class Antigravity_Booking_Settings
         check_ajax_referer('antigravity_test_gcal', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            ob_end_clean();
             wp_send_json_error(array('message' => 'Unauthorized'));
         }
 
@@ -1062,11 +1066,11 @@ class Antigravity_Booking_Settings
                  throw new Exception('Antigravity_Booking_Google_Calendar class not found after require.');
             }
 
-            // 2. Initialize
+            // 2. Initialize (DO NOT call init() - we don't want to register hooks during test)
             error_log('Antigravity Booking: Initializing GCal Class');
             $gcal = new Antigravity_Booking_Google_Calendar();
             
-            // 3. Test
+            // 3. Test connection
             error_log('Antigravity Booking: Calling test_connection()');
             $gcal->test_connection();
             

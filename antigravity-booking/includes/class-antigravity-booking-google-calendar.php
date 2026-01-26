@@ -1,16 +1,13 @@
 <?php
 /**
  * Google Calendar Integration
- * Syncs approved bookings to admin's Google Calendar
- *
- * Supports two authentication methods:
- * 1. JSON credentials stored in WordPress options (recommended)
- * 2. Credentials file path (legacy)
+ * Syncs approved bookings to admin's Google Calendar using OAuth 2.0
  */
 class Antigravity_Booking_Google_Calendar
 {
 
     private $client;
+    private $oauth;
 
     public function __construct()
     {
@@ -28,9 +25,7 @@ class Antigravity_Booking_Google_Calendar
     }
 
     /**
-     * Get Google Client
-     *
-     * Supports both JSON credentials (stored in options) and file-based credentials
+     * Get Google Client with OAuth authentication
      */
     private function get_client()
     {
@@ -43,110 +38,50 @@ class Antigravity_Booking_Google_Calendar
             throw new Exception('Google API Client library not found. Please run "composer require google/apiclient:^2.0" in the plugin directory.');
         }
 
+        // Check if OAuth is authorized
+        if (!get_option('antigravity_gcal_oauth_authorized', false)) {
+            throw new Exception('Google Calendar not authorized. Please authorize in plugin settings.');
+        }
+
         try {
-            error_log('Antigravity Booking: Instantiating Google_Client');
+            error_log('Antigravity Booking: Instantiating Google_Client with OAuth');
             $client = new Google_Client();
             $client->setApplicationName('Simplified Booking');
-            // Use explicit scope string to avoid dependency on service class constants during init
             $client->setScopes(array('https://www.googleapis.com/auth/calendar'));
-            error_log('Antigravity Booking: Google_Client instantiated successfully');
+            
+            // Get OAuth instance
+            if (!$this->oauth) {
+                $this->oauth = new Antigravity_Booking_Google_OAuth();
+            }
+            
+            // Get valid access token (will refresh if needed)
+            $access_token = $this->oauth->get_access_token();
+            
+            if (!$access_token) {
+                throw new Exception('No valid access token available. Please re-authorize in settings.');
+            }
+            
+            $client->setAccessToken($access_token);
+            
+            // Check if token is expired
+            if ($client->isAccessTokenExpired()) {
+                error_log('Antigravity Booking: Access token expired, refreshing...');
+                if ($this->oauth->refresh_access_token()) {
+                    $access_token = $this->oauth->get_access_token();
+                    $client->setAccessToken($access_token);
+                } else {
+                    throw new Exception('Failed to refresh access token. Please re-authorize in settings.');
+                }
+            }
+            
+            $this->client = $client;
+            error_log('Antigravity Booking: Google_Client authenticated successfully with OAuth');
+            return $this->client;
+            
         } catch (Throwable $t) {
-            error_log('Antigravity Booking: FAILED to instantiate Google_Client: ' . $t->getMessage() . ' in ' . $t->getFile() . ':' . $t->getLine());
-            throw new Exception('Google Client Initialization Failed: ' . $t->getMessage());
+            error_log('Antigravity Booking: OAuth authentication failed: ' . $t->getMessage());
+            throw new Exception('Google Calendar authentication failed: ' . $t->getMessage());
         }
-
-        $auth_error = '';
-
-        // 1. Try file-based credentials first (most reliable in mangled environments)
-        $credentials_file = get_option('antigravity_gcal_credentials_file');
-        if (!empty($credentials_file)) {
-            if (file_exists($credentials_file)) {
-                try {
-                    error_log('Antigravity Booking: Attempting authentication with file path: ' . $credentials_file);
-                    $client->setAuthConfig($credentials_file);
-                    $this->client = $client;
-                    return $this->client;
-                } catch (Exception $e) {
-                    $auth_error = 'File Auth: ' . $e->getMessage();
-                    error_log('Antigravity Booking: File Auth Failed: ' . $e->getMessage());
-                }
-            } else {
-                $auth_error = 'File not found at: ' . $credentials_file;
-                error_log('Antigravity Booking: ' . $auth_error);
-            }
-        }
-
-        // 2. Try JSON credentials (new method)
-        $credentials_json = get_option('antigravity_gcal_credentials_json');
-
-        if (!empty($credentials_json)) {
-            error_log('Antigravity Booking: JSON credentials found, attempting to process.');
-            // WordPress might add slashes to JSON strings
-            $credentials_json = wp_unslash($credentials_json);
-            $credentials_data = json_decode($credentials_json, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && !empty($credentials_data)) {
-                error_log('Antigravity Booking: JSON decoded successfully.');
-                // Fix potential private key formatting issues
-                if (isset($credentials_data['private_key'])) {
-                    error_log('Antigravity Booking: Private key found, normalizing.');
-                    $key = $credentials_data['private_key'];
-
-                    // Only normalize if key appears to have escaping issues
-                    // Check for literal \n sequences (not actual newlines)
-                    if (strpos($key, '\\n') !== false) {
-                        error_log('Antigravity Booking: Normalizing escaped newlines in private key');
-                        $key = str_replace('\\n', "\n", $key);
-                    }
-                    
-                    // Normalize line endings (Windows to Unix)
-                    $key = str_replace("\r\n", "\n", $key);
-                    $key = str_replace("\r", "\n", $key);
-                    
-                    // Ensure proper header format (add newline after header if missing)
-                    if (preg_match('/^-----BEGIN PRIVATE KEY-----[^\n]/', $key)) {
-                        $key = str_replace('-----BEGIN PRIVATE KEY-----', "-----BEGIN PRIVATE KEY-----\n", $key);
-                    }
-                    
-                    // Ensure proper footer format (add newline before footer if missing)
-                    if (preg_match('/[^\n]-----END PRIVATE KEY-----$/', $key)) {
-                        $key = str_replace('-----END PRIVATE KEY-----', "\n-----END PRIVATE KEY-----", $key);
-                    }
-                    
-                    // Final trim (safe - only removes leading/trailing whitespace)
-                    $key = trim($key);
-                    
-                    $credentials_data['private_key'] = $key;
-                    
-                    error_log('Antigravity Booking: Private key normalized successfully');
-                }
-
-                try {
-                    error_log('Antigravity Booking: Calling setAuthConfig().');
-                    $client->setAuthConfig($credentials_data);
-                    error_log('Antigravity Booking: setAuthConfig() success.');
-                    $this->client = $client;
-                    return $this->client;
-                } catch (Exception $e) {
-                    $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Auth: ' . $e->getMessage();
-                    error_log('Antigravity Booking: JSON Auth Failed: ' . $e->getMessage());
-                } catch (Throwable $t) {
-                    $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Auth Throwable: ' . $t->getMessage();
-                    error_log('Antigravity Booking: JSON Auth Throwable: ' . $t->getMessage());
-                }
-            } else {
-                $json_err = json_last_error_msg();
-                $auth_error .= ($auth_error ? ' | ' : '') . 'JSON Format: ' . $json_err;
-                error_log('Antigravity Booking: JSON Parsing Failed: ' . $json_err);
-            }
-        }
-
-        // If both failed or are empty
-        if ($auth_error) {
-            throw new Exception('Connection Failed: ' . $auth_error);
-        }
-
-        throw new Exception('Google Calendar credentials not configured. Please paste your JSON in settings or provide a valid file path.');
     }
 
     /**

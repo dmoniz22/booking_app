@@ -1,0 +1,242 @@
+<?php
+/**
+ * Google OAuth 2.0 Handler
+ * Handles OAuth authentication flow for Google Calendar integration
+ */
+class Antigravity_Booking_Google_OAuth
+{
+    private $client_id;
+    private $client_secret;
+    private $redirect_uri;
+    
+    public function __construct() {
+        $this->client_id = get_option('antigravity_gcal_oauth_client_id');
+        $this->client_secret = get_option('antigravity_gcal_oauth_client_secret');
+        $this->redirect_uri = admin_url('admin.php?page=antigravity-oauth-callback');
+        
+        add_action('admin_init', array($this, 'handle_oauth_callback'));
+        add_action('admin_post_disconnect_google_oauth', array($this, 'handle_disconnect'));
+    }
+    
+    /**
+     * Get authorization URL
+     */
+    public function get_auth_url() {
+        if (empty($this->client_id)) {
+            return '';
+        }
+        
+        $params = array(
+            'client_id' => $this->client_id,
+            'redirect_uri' => $this->redirect_uri,
+            'response_type' => 'code',
+            'scope' => 'https://www.googleapis.com/auth/calendar',
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+            'state' => wp_create_nonce('antigravity_oauth_state'),
+        );
+        
+        return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+    }
+    
+    /**
+     * Handle OAuth callback
+     */
+    public function handle_oauth_callback() {
+        if (!isset($_GET['page']) || $_GET['page'] !== 'antigravity-oauth-callback') {
+            return;
+        }
+        
+        // Verify state
+        if (!isset($_GET['state']) || !wp_verify_nonce($_GET['state'], 'antigravity_oauth_state')) {
+            wp_die('Invalid state parameter. Please try authorizing again.');
+        }
+        
+        // Check for errors
+        if (isset($_GET['error'])) {
+            $error_msg = sanitize_text_field($_GET['error']);
+            wp_redirect(admin_url('admin.php?page=antigravity-booking-settings&oauth_error=' . urlencode($error_msg)));
+            exit;
+        }
+        
+        // Exchange code for tokens
+        if (isset($_GET['code'])) {
+            $code = sanitize_text_field($_GET['code']);
+            $tokens = $this->exchange_code_for_tokens($code);
+            
+            if ($tokens && isset($tokens['access_token'])) {
+                update_option('antigravity_gcal_oauth_access_token', $tokens['access_token']);
+                
+                if (isset($tokens['refresh_token'])) {
+                    update_option('antigravity_gcal_oauth_refresh_token', $this->encrypt_token($tokens['refresh_token']));
+                }
+                
+                $expires_at = time() + (isset($tokens['expires_in']) ? intval($tokens['expires_in']) : 3600);
+                update_option('antigravity_gcal_oauth_expires_at', $expires_at);
+                update_option('antigravity_gcal_oauth_authorized', true);
+                
+                wp_redirect(admin_url('admin.php?page=antigravity-booking-settings&oauth_success=1'));
+                exit;
+            }
+        }
+        
+        wp_redirect(admin_url('admin.php?page=antigravity-booking-settings&oauth_error=token_exchange_failed'));
+        exit;
+    }
+    
+    /**
+     * Exchange authorization code for tokens
+     */
+    private function exchange_code_for_tokens($code) {
+        $response = wp_remote_post('https://oauth2.googleapis.com/token', array(
+            'body' => array(
+                'code' => $code,
+                'client_id' => $this->client_id,
+                'client_secret' => $this->client_secret,
+                'redirect_uri' => $this->redirect_uri,
+                'grant_type' => 'authorization_code',
+            ),
+            'timeout' => 30,
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('OAuth token exchange error: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (isset($body['error'])) {
+            error_log('OAuth token exchange error: ' . $body['error']);
+            return false;
+        }
+        
+        return $body;
+    }
+    
+    /**
+     * Refresh access token
+     */
+    public function refresh_access_token() {
+        $refresh_token = $this->decrypt_token(get_option('antigravity_gcal_oauth_refresh_token'));
+        
+        if (!$refresh_token) {
+            error_log('No refresh token available for OAuth');
+            return false;
+        }
+        
+        $response = wp_remote_post('https://oauth2.googleapis.com/token', array(
+            'body' => array(
+                'refresh_token' => $refresh_token,
+                'client_id' => $this->client_id,
+                'client_secret' => $this->client_secret,
+                'grant_type' => 'refresh_token',
+            ),
+            'timeout' => 30,
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('OAuth token refresh error: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (isset($body['access_token'])) {
+            update_option('antigravity_gcal_oauth_access_token', $body['access_token']);
+            $expires_at = time() + (isset($body['expires_in']) ? intval($body['expires_in']) : 3600);
+            update_option('antigravity_gcal_oauth_expires_at', $expires_at);
+            return true;
+        }
+        
+        if (isset($body['error'])) {
+            error_log('OAuth token refresh error: ' . $body['error']);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Get valid access token (refresh if needed)
+     */
+    public function get_access_token() {
+        $expires_at = get_option('antigravity_gcal_oauth_expires_at', 0);
+        
+        // Refresh if token expires in less than 5 minutes
+        if (time() > ($expires_at - 300)) {
+            $this->refresh_access_token();
+        }
+        
+        return get_option('antigravity_gcal_oauth_access_token');
+    }
+    
+    /**
+     * Check if OAuth is authorized
+     */
+    public function is_authorized() {
+        return (bool) get_option('antigravity_gcal_oauth_authorized', false);
+    }
+    
+    /**
+     * Handle disconnect request
+     */
+    public function handle_disconnect() {
+        check_admin_referer('disconnect_google_oauth');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $this->disconnect();
+        
+        wp_redirect(admin_url('admin.php?page=antigravity-booking-settings&oauth_disconnected=1'));
+        exit;
+    }
+    
+    /**
+     * Disconnect OAuth
+     */
+    public function disconnect() {
+        delete_option('antigravity_gcal_oauth_access_token');
+        delete_option('antigravity_gcal_oauth_refresh_token');
+        delete_option('antigravity_gcal_oauth_expires_at');
+        delete_option('antigravity_gcal_oauth_authorized');
+    }
+    
+    /**
+     * Encrypt token for storage
+     */
+    private function encrypt_token($token) {
+        if (function_exists('openssl_encrypt')) {
+            $key = wp_salt('auth');
+            $iv = openssl_random_pseudo_bytes(16);
+            $encrypted = openssl_encrypt($token, 'AES-256-CBC', $key, 0, $iv);
+            return base64_encode($iv . $encrypted);
+        }
+        // Fallback (less secure but better than nothing)
+        return base64_encode($token);
+    }
+    
+    /**
+     * Decrypt token from storage
+     */
+    private function decrypt_token($encrypted_token) {
+        if (empty($encrypted_token)) {
+            return '';
+        }
+        
+        if (function_exists('openssl_decrypt')) {
+            $key = wp_salt('auth');
+            $data = base64_decode($encrypted_token);
+            if ($data === false) {
+                return '';
+            }
+            $iv = substr($data, 0, 16);
+            $encrypted = substr($data, 16);
+            $decrypted = openssl_decrypt($encrypted, 'AES-256-CBC', $key, 0, $iv);
+            return $decrypted !== false ? $decrypted : '';
+        }
+        // Fallback
+        return base64_decode($encrypted_token);
+    }
+}

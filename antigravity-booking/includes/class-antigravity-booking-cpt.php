@@ -12,6 +12,7 @@ class Antigravity_Booking_CPT
 		add_action('add_meta_boxes', array($this, 'add_booking_meta_boxes'));
 		add_action('save_post_booking', array($this, 'save_booking_meta'), 10, 2);
 		add_action('admin_notices', array($this, 'display_booking_notices'));
+		add_filter('post_updated_messages', array($this, 'booking_updated_messages'));
 	}
 
 	/**
@@ -106,6 +107,15 @@ class Antigravity_Booking_CPT
 			'customer_details',
 			'Customer Details',
 			array($this, 'render_customer_details_meta_box'),
+			'booking',
+			'side',
+			'default'
+		);
+
+		add_meta_box(
+			'booking_checklist',
+			'Booking Approval Checklist',
+			array($this, 'render_booking_checklist_meta_box'),
 			'booking',
 			'side',
 			'default'
@@ -281,6 +291,24 @@ class Antigravity_Booking_CPT
 			update_post_meta($post_id, '_event_description', sanitize_textarea_field($_POST['event_description']));
 		}
 
+		// Save checklist items
+		$checklist_items = array(
+			'checklist_rental_agreement' => '_checklist_rental_agreement',
+			'checklist_deposit' => '_checklist_deposit',
+			'checklist_insurance' => '_checklist_insurance',
+			'checklist_key_arrangement' => '_checklist_key_arrangement',
+			'checklist_deposit_returned' => '_checklist_deposit_returned'
+		);
+
+		foreach ($checklist_items as $field_name => $meta_key) {
+			$value = isset($_POST[$field_name]) ? '1' : '0';
+			update_post_meta($post_id, $meta_key, $value);
+		}
+
+		// Update checklist progress
+		$progress = $this->calculate_checklist_progress($post_id);
+		update_post_meta($post_id, '_checklist_progress', $progress);
+
 		// Recalculate cost
 		$cost = $this->calculate_cost($post_id);
 		update_post_meta($post_id, '_estimated_cost', $cost);
@@ -339,5 +367,108 @@ class Antigravity_Booking_CPT
 		$hourly_rate = get_option('antigravity_booking_hourly_rate', 100);
 
 		return round($hours * $hourly_rate, 2);
+	}
+
+	/**
+	 * Render booking checklist meta box
+	 */
+	public function render_booking_checklist_meta_box($post)
+	{
+		// Get checklist items
+		$rental_agreement = get_post_meta($post->ID, '_checklist_rental_agreement', true);
+		$deposit = get_post_meta($post->ID, '_checklist_deposit', true);
+		$insurance = get_post_meta($post->ID, '_checklist_insurance', true);
+		$key_arrangement = get_post_meta($post->ID, '_checklist_key_arrangement', true);
+		$deposit_returned = get_post_meta($post->ID, '_checklist_deposit_returned', true);
+		$progress = $this->calculate_checklist_progress($post->ID);
+
+		?>
+		<div class="booking-checklist">
+			<div class="checklist-progress" style="margin-bottom: 15px;">
+				<div style="background: #f0f0f1; border-radius: 3px; height: 20px; overflow: hidden;">
+					<div style="background: #2271b1; height: 100%; width: <?php echo esc_attr($progress); ?>%; transition: width 0.3s;"></div>
+				</div>
+				<p style="margin: 5px 0; text-align: center; font-weight: bold;">Progress: <?php echo esc_html($progress); ?>%</p>
+			</div>
+			
+			<p>
+				<label>
+					<input type="checkbox" name="checklist_rental_agreement" value="1" <?php checked($rental_agreement, '1'); ?> />
+					Rental Agreement
+				</label>
+			</p>
+			<p>
+				<label>
+					<input type="checkbox" name="checklist_deposit" value="1" <?php checked($deposit, '1'); ?> />
+					Deposit Received
+				</label>
+			</p>
+			<p>
+				<label>
+					<input type="checkbox" name="checklist_insurance" value="1" <?php checked($insurance, '1'); ?> />
+					Certificate of Insurance
+				</label>
+			</p>
+			<p>
+				<label>
+					<input type="checkbox" name="checklist_key_arrangement" value="1" <?php checked($key_arrangement, '1'); ?> />
+					Key Arrangement
+				</label>
+			</p>
+			<p>
+				<label>
+					<input type="checkbox" name="checklist_deposit_returned" value="1" <?php checked($deposit_returned, '1'); ?> />
+					Deposit Returned
+				</label>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Calculate checklist progress percentage
+	 */
+	public function calculate_checklist_progress($booking_id)
+	{
+		$items = array(
+			'_checklist_rental_agreement',
+			'_checklist_deposit',
+			'_checklist_insurance',
+			'_checklist_key_arrangement',
+			'_checklist_deposit_returned'
+		);
+		
+		$completed = 0;
+		foreach ($items as $item) {
+			if (get_post_meta($booking_id, $item, true)) {
+				$completed++;
+			}
+		}
+		
+		return round(($completed / count($items)) * 100);
+	}
+
+	/**
+	 * Custom update messages for bookings
+	 */
+	public function booking_updated_messages($messages)
+	{
+		$post = get_post();
+		
+		$messages['booking'] = array(
+			0  => '', // Unused. Messages start at index 1.
+			1  => 'Booking updated successfully.',
+			2  => 'Custom field updated.',
+			3  => 'Custom field deleted.',
+			4  => 'Booking updated.',
+			5  => isset($_GET['revision']) ? sprintf('Booking restored to revision from %s', wp_post_revision_title((int) $_GET['revision'], false)) : false,
+			6  => 'Booking created successfully.',
+			7  => 'Booking saved.',
+			8  => 'Booking submitted.',
+			9  => sprintf('Booking scheduled for: <strong>%1$s</strong>.', date_i18n('M j, Y @ g:i a', strtotime($post->post_date))),
+			10 => 'Booking draft updated.'
+		);
+		
+		return $messages;
 	}
 }

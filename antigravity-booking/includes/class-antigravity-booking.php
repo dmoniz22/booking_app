@@ -10,7 +10,7 @@ class Antigravity_Booking
     public function __construct()
     {
         $this->plugin_name = 'antigravity-booking';
-        $this->version = '1.0.0';
+        $this->version = '1.2.0';
         $this->load_dependencies();
         $this->init_components();
         $this->define_admin_hooks();
@@ -22,9 +22,11 @@ class Antigravity_Booking
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-cpt.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-availability.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-emails.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-google-oauth.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-google-calendar.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-settings.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-dashboard.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-blackout.php';
 
         // Frontend
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-antigravity-booking-shortcode.php';
@@ -36,12 +38,12 @@ class Antigravity_Booking
         $this->cpt = new Antigravity_Booking_CPT();
         $this->availability = new Antigravity_Booking_Availability();
         $this->emails = new Antigravity_Booking_Emails();
+        $this->blackout = new Antigravity_Booking_Blackout();
+        $this->google_oauth = new Antigravity_Booking_Google_OAuth();
         
-        // Google Calendar Integration - Temporarily disabled due to caching issues
-        // Will be replaced with OAuth in next version
-        // Uncomment these lines after server cache clears or when OAuth is implemented:
-        // $this->google_calendar = new Antigravity_Booking_Google_Calendar();
-        // $this->google_calendar->init(); // Initialize hooks
+        // Google Calendar Integration with OAuth
+        $this->google_calendar = new Antigravity_Booking_Google_Calendar();
+        $this->google_calendar->init(); // Initialize hooks
 
         // Frontend Init
         $this->shortcode = new Antigravity_Booking_Shortcode();

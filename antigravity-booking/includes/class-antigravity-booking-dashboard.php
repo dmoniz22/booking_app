@@ -57,6 +57,10 @@ class Antigravity_Booking_Dashboard
         $paged = isset($_GET['paged']) ? intval($_GET['paged']) : 1;
         $per_page = 20;
 
+        // Sorting parameters
+        $orderby = isset($_GET['orderby']) ? sanitize_text_field($_GET['orderby']) : 'start_date';
+        $order = isset($_GET['order']) ? sanitize_text_field($_GET['order']) : 'DESC';
+
         // Date range filters
         $date_from = isset($_GET['date_from']) ? sanitize_text_field($_GET['date_from']) : '';
         $date_to = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
@@ -70,10 +74,29 @@ class Antigravity_Booking_Dashboard
             'post_type' => 'booking',
             'posts_per_page' => $per_page,
             'paged' => $paged,
-            'orderby' => 'date',
-            'order' => 'DESC',
             'post_status' => $status_filter === 'all' ? array('pending_review', 'approved', 'expired', 'trash') : $status_filter
         );
+
+        // Apply sorting
+        if ($orderby === 'start_date') {
+            $args['meta_key'] = '_booking_start_datetime';
+            $args['orderby'] = 'meta_value';
+            $args['order'] = $order;
+        } elseif ($orderby === 'customer_name') {
+            $args['meta_key'] = '_customer_name';
+            $args['orderby'] = 'meta_value';
+            $args['order'] = $order;
+        } elseif ($orderby === 'cost') {
+            $args['meta_key'] = '_estimated_cost';
+            $args['orderby'] = 'meta_value_num';
+            $args['order'] = $order;
+        } elseif ($orderby === 'status') {
+            $args['orderby'] = 'post_status';
+            $args['order'] = $order;
+        } else {
+            $args['orderby'] = 'date';
+            $args['order'] = 'DESC';
+        }
 
         if ($status_filter !== 'all') {
             $args['post_status'] = $status_filter;
@@ -161,7 +184,7 @@ class Antigravity_Booking_Dashboard
             if ($view === 'calendar') {
                 $this->render_calendar_view($cal_month, $cal_year);
             } else {
-                $this->render_list_view($bookings, $query, $status_filter, $search, $date_from, $date_to, $paged, $total_pages, $counts);
+                $this->render_list_view($bookings, $query, $status_filter, $search, $date_from, $date_to, $paged, $total_pages, $counts, $orderby, $order);
             }
             ?>
 
@@ -266,8 +289,25 @@ class Antigravity_Booking_Dashboard
     /**
      * Render the list view (Standard table)
      */
-    private function render_list_view($bookings, $query, $status_filter, $search, $date_from, $date_to, $paged, $total_pages, $counts)
+    private function render_list_view($bookings, $query, $status_filter, $search, $date_from, $date_to, $paged, $total_pages, $counts, $orderby = 'start_date', $order = 'DESC')
     {
+        // Helper function to generate sortable column URL
+        $get_sort_url = function($column) use ($status_filter, $search, $date_from, $date_to, $orderby, $order) {
+            $base_url = admin_url('admin.php?page=antigravity-booking&view=list');
+            if ($status_filter !== 'all') $base_url .= '&status=' . $status_filter;
+            if ($search) $base_url .= '&s=' . urlencode($search);
+            if ($date_from) $base_url .= '&date_from=' . $date_from;
+            if ($date_to) $base_url .= '&date_to=' . $date_to;
+            
+            $new_order = ($orderby === $column && $order === 'ASC') ? 'DESC' : 'ASC';
+            return $base_url . '&orderby=' . $column . '&order=' . $new_order;
+        };
+        
+        // Helper function to get sort indicator
+        $get_sort_indicator = function($column) use ($orderby, $order) {
+            if ($orderby !== $column) return ' ↕';
+            return $order === 'ASC' ? ' ↑' : ' ↓';
+        };
         ?>
         <!-- Status Filters -->
         <ul class="subsubsub">
@@ -364,19 +404,36 @@ class Antigravity_Booking_Dashboard
                     <tr>
                         <th style="width: 40px;"><input type="checkbox" id="select-all-bookings"></th>
                         <th style="width: 50px;">ID</th>
-                        <th>Customer</th>
+                        <th class="sortable" style="cursor: pointer;">
+                            <a href="<?php echo $get_sort_url('customer_name'); ?>" style="text-decoration: none; color: inherit;">
+                                Customer<?php echo $get_sort_indicator('customer_name'); ?>
+                            </a>
+                        </th>
                         <th>Email</th>
-                        <th>Start Date</th>
+                        <th class="sortable" style="cursor: pointer;">
+                            <a href="<?php echo $get_sort_url('start_date'); ?>" style="text-decoration: none; color: inherit;">
+                                Start Date<?php echo $get_sort_indicator('start_date'); ?>
+                            </a>
+                        </th>
                         <th>End Date</th>
-                        <th>Cost</th>
-                        <th>Status</th>
+                        <th class="sortable" style="cursor: pointer;">
+                            <a href="<?php echo $get_sort_url('cost'); ?>" style="text-decoration: none; color: inherit;">
+                                Cost<?php echo $get_sort_indicator('cost'); ?>
+                            </a>
+                        </th>
+                        <th class="sortable" style="cursor: pointer;">
+                            <a href="<?php echo $get_sort_url('status'); ?>" style="text-decoration: none; color: inherit;">
+                                Status<?php echo $get_sort_indicator('status'); ?>
+                            </a>
+                        </th>
+                        <th>Progress</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($bookings)): ?>
                         <tr>
-                            <td colspan="9" style="text-align: center; padding: 40px;">
+                            <td colspan="10" style="text-align: center; padding: 40px;">
                                 <p style="color: #666;">No bookings found.</p>
                             </td>
                         </tr>
@@ -389,6 +446,7 @@ class Antigravity_Booking_Dashboard
                             $end = get_post_meta($booking->ID, '_booking_end_datetime', true);
                             $cost = get_post_meta($booking->ID, '_estimated_cost', true);
                             $status = get_post_status($booking->ID);
+                            $progress = get_post_meta($booking->ID, '_checklist_progress', true) ?: 0;
 
                             $status_labels = array(
                                 'pending_review' => '<span style="color: #d63638;">Pending Review</span>',
@@ -408,6 +466,14 @@ class Antigravity_Booking_Dashboard
                                 <td><?php echo $end ? date('M j, Y g:i A', strtotime($end)) : 'N/A'; ?></td>
                                 <td><strong>$<?php echo number_format($cost, 2); ?></strong></td>
                                 <td><?php echo $status_labels[$status] ?? $status; ?></td>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <div style="background: #f0f0f1; border-radius: 3px; height: 12px; width: 60px; overflow: hidden;">
+                                            <div style="background: #2271b1; height: 100%; width: <?php echo $progress; ?>%;"></div>
+                                        </div>
+                                        <span style="font-size: 11px; color: #666;"><?php echo $progress; ?>%</span>
+                                    </div>
+                                </td>
                                 <td>
                                     <a href="<?php echo admin_url("post.php?post={$booking->ID}&action=edit"); ?>"
                                         class="button button-small">Edit</a>

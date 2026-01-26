@@ -57,11 +57,18 @@ class Antigravity_Booking_Availability
 
         // Check 2: Is the date a blackout date?
         $date_only = $start->format('Y-m-d');
-        $blackout_dates = get_option('antigravity_booking_blackout_dates', '');
-        $blackout_list = array_filter(array_map('trim', explode("\n", $blackout_dates)));
+        
+        // Check new blackout_date CPT first
+        if (class_exists('Antigravity_Booking_Blackout') && Antigravity_Booking_Blackout::is_date_blacked_out($date_only)) {
+            $errors[] = 'This date is not available for booking (blackout period).';
+        } else {
+            // Fallback to legacy text-based blackout dates
+            $blackout_dates = get_option('antigravity_booking_blackout_dates', '');
+            $blackout_list = array_filter(array_map('trim', explode("\n", $blackout_dates)));
 
-        if (in_array($date_only, $blackout_list)) {
-            $errors[] = 'This date is not available for booking.';
+            if (in_array($date_only, $blackout_list)) {
+                $errors[] = 'This date is not available for booking.';
+            }
         }
 
         // Check 3: Are the times within business hours for this day?
@@ -112,10 +119,11 @@ class Antigravity_Booking_Availability
     {
         $overnight_days = get_option('antigravity_booking_overnight_days', array('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'));
 
-        // Get day of week from start datetime
+        // Get day of week and date from start datetime
         try {
             $start_dt_obj = new DateTime($start_datetime, self::get_timezone());
             $day_name = strtolower($start_dt_obj->format('l'));
+            $date = $start_dt_obj->format('Y-m-d');
 
             if (!in_array($day_name, (array) $overnight_days)) {
                 return false;
@@ -124,7 +132,21 @@ class Antigravity_Booking_Availability
             return false;
         }
 
-        $overnight_cutoff = get_option('antigravity_booking_overnight_cutoff', '22:00');
+        // Check for special date override first
+        $special_hours = get_option('antigravity_booking_special_hours', array());
+        if (isset($special_hours[$date])) {
+            $overnight_cutoff = $special_hours[$date]['start'];
+        } else {
+            // Check for per-day overnight times
+            $overnight_times = get_option('antigravity_booking_overnight_times', array());
+            if (isset($overnight_times[$day_name])) {
+                $overnight_cutoff = $overnight_times[$day_name]['start'];
+            } else {
+                // Fallback to global overnight cutoff
+                $overnight_cutoff = get_option('antigravity_booking_overnight_cutoff', '22:00');
+            }
+        }
+
         try {
             $start = new DateTime($start_datetime, self::get_timezone());
             $start_time = $start->format('H:i');
@@ -142,8 +164,24 @@ class Antigravity_Booking_Availability
      */
     public static function get_overnight_end($start_datetime)
     {
-        $overnight_extend = get_option('antigravity_booking_overnight_extend', '10:00');
         $start = new DateTime($start_datetime, self::get_timezone());
+        $date = $start->format('Y-m-d');
+        $day_name = strtolower($start->format('l'));
+        
+        // Check for special date override first
+        $special_hours = get_option('antigravity_booking_special_hours', array());
+        if (isset($special_hours[$date])) {
+            $overnight_extend = $special_hours[$date]['end'];
+        } else {
+            // Check for per-day overnight times
+            $overnight_times = get_option('antigravity_booking_overnight_times', array());
+            if (isset($overnight_times[$day_name])) {
+                $overnight_extend = $overnight_times[$day_name]['end'];
+            } else {
+                // Fallback to global overnight extend time
+                $overnight_extend = get_option('antigravity_booking_overnight_extend', '10:00');
+            }
+        }
 
         // Set to next day at extend time
         $end = clone $start;

@@ -206,39 +206,84 @@ class Antigravity_Booking_Settings
             'default' => '10:00',
         ));
 
+        // Per-Day Overnight Times
+        add_settings_field(
+            'antigravity_booking_overnight_times',
+            'Overnight Times (Per Day)',
+            array($this, 'render_overnight_times_field'),
+            'antigravity-booking-settings',
+            'antigravity_booking_overnight'
+        );
+        register_setting('antigravity_booking_settings', 'antigravity_booking_overnight_times', array(
+            'type' => 'array',
+            'sanitize_callback' => array($this, 'sanitize_overnight_times'),
+            'default' => array(
+                'monday' => array('start' => '22:00', 'end' => '10:00'),
+                'tuesday' => array('start' => '22:00', 'end' => '10:00'),
+                'wednesday' => array('start' => '22:00', 'end' => '10:00'),
+                'thursday' => array('start' => '22:00', 'end' => '10:00'),
+                'friday' => array('start' => '22:00', 'end' => '10:00'),
+                'saturday' => array('start' => '22:00', 'end' => '10:00'),
+                'sunday' => array('start' => '22:00', 'end' => '10:00'),
+            ),
+        ));
+
+        // Special Date Overrides
+        add_settings_field(
+            'antigravity_booking_special_hours',
+            'Special Date Overrides',
+            array($this, 'render_special_hours_field'),
+            'antigravity-booking-settings',
+            'antigravity_booking_overnight'
+        );
+        register_setting('antigravity_booking_settings', 'antigravity_booking_special_hours', array(
+            'type' => 'array',
+            'sanitize_callback' => array($this, 'sanitize_special_hours'),
+            'default' => array(),
+        ));
+
         // Google Calendar Section
         add_settings_section(
             'antigravity_booking_gcal',
-            'Google Calendar Integration',
+            'Google Calendar Integration (OAuth 2.0)',
             array($this, 'render_gcal_section'),
             'antigravity-booking-settings'
         );
 
-        // Google Calendar Credentials (JSON) - NEW STREAMLINED METHOD
+        // OAuth Client ID
         add_settings_field(
-            'antigravity_gcal_credentials_json',
-            'Service Account JSON Credentials',
-            array($this, 'render_credentials_json_field'),
+            'antigravity_gcal_oauth_client_id',
+            'OAuth Client ID',
+            array($this, 'render_oauth_client_id_field'),
             'antigravity-booking-settings',
             'antigravity_booking_gcal'
         );
-        register_setting('antigravity_booking_settings', 'antigravity_gcal_credentials_json', array(
-            'type' => 'string',
-            'sanitize_callback' => 'trim',
-        ));
-
-        // Google Calendar Credentials File (Legacy) - Keep for backward compatibility
-        add_settings_field(
-            'antigravity_gcal_credentials_file',
-            'Service Account JSON File Path (Legacy)',
-            array($this, 'render_credentials_field'),
-            'antigravity-booking-settings',
-            'antigravity_booking_gcal'
-        );
-        register_setting('antigravity_booking_settings', 'antigravity_gcal_credentials_file', array(
+        register_setting('antigravity_booking_settings', 'antigravity_gcal_oauth_client_id', array(
             'type' => 'string',
             'sanitize_callback' => 'sanitize_text_field',
         ));
+
+        // OAuth Client Secret
+        add_settings_field(
+            'antigravity_gcal_oauth_client_secret',
+            'OAuth Client Secret',
+            array($this, 'render_oauth_client_secret_field'),
+            'antigravity-booking-settings',
+            'antigravity_booking_gcal'
+        );
+        register_setting('antigravity_booking_settings', 'antigravity_gcal_oauth_client_secret', array(
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+        ));
+
+        // OAuth Authorization Status
+        add_settings_field(
+            'antigravity_gcal_oauth_status',
+            'Authorization Status',
+            array($this, 'render_oauth_status_field'),
+            'antigravity-booking-settings',
+            'antigravity_booking_gcal'
+        );
 
         // Google Calendar ID
         add_settings_field(
@@ -625,7 +670,14 @@ class Antigravity_Booking_Settings
 
     public function render_gcal_section()
     {
-        echo '<p>Connect your Google Calendar to automatically sync approved bookings. See <a href="' . plugin_dir_url(dirname(__FILE__)) . 'GOOGLE_CALENDAR_SETUP.md" target="_blank">setup guide</a>.</p>';
+        echo '<p>Connect your Google Calendar using OAuth 2.0 for secure, easy authentication. No JSON files needed!</p>';
+        echo '<p><strong>Setup Steps:</strong></p>';
+        echo '<ol>';
+        echo '<li>Create OAuth 2.0 credentials in <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>';
+        echo '<li>Add redirect URI: <code>' . admin_url('admin.php?page=antigravity-oauth-callback') . '</code></li>';
+        echo '<li>Enter Client ID and Secret below</li>';
+        echo '<li>Save settings, then click "Authorize with Google"</li>';
+        echo '</ol>';
     }
 
     public function render_customer_email_section()
@@ -673,28 +725,113 @@ class Antigravity_Booking_Settings
         <?php
     }
 
-    public function render_credentials_json_field()
+    public function render_oauth_client_id_field()
     {
-        $value = get_option('antigravity_gcal_credentials_json', '');
+        $value = get_option('antigravity_gcal_oauth_client_id', '');
         ?>
-        <textarea name="antigravity_gcal_credentials_json" rows="10" cols="50" class="large-text code" placeholder='{"type": "service_account", ...}'><?php echo esc_textarea($value); ?></textarea>
-        <p class="description">Paste the entire contents of your Google Service Account JSON file here.</p>
-        <button type="button" id="antigravity-test-gcal" class="button button-secondary">Test Connection</button>
-        <button type="button" id="antigravity-clear-json" class="button button-link-delete" style="color: #d63638; text-decoration: none; margin-left: 10px;">Clear JSON</button>
-        <span id="antigravity-gcal-test-status" style="margin-left: 10px; font-weight: bold;"></span>
+        <input type="text" name="antigravity_gcal_oauth_client_id"
+               value="<?php echo esc_attr($value); ?>" class="large-text">
+        <p class="description">OAuth 2.0 Client ID from Google Cloud Console.
+           <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Get credentials</a></p>
         <?php
     }
 
-    public function render_credentials_field()
+    public function render_oauth_client_secret_field()
     {
-        $value = get_option('antigravity_gcal_credentials_file', '');
+        $value = get_option('antigravity_gcal_oauth_client_secret', '');
         ?>
-        <input type="text" name="antigravity_gcal_credentials_file" value="<?php echo esc_attr($value); ?>"
-            class="large-text code">
-        <p class="description">Legacy: Absolute server path to your Google Service Account JSON file (e.g.,
-            <code>/var/www/credentials.json</code>).
-        </p>
+        <input type="password" name="antigravity_gcal_oauth_client_secret"
+               value="<?php echo esc_attr($value); ?>" class="large-text">
+        <p class="description">OAuth 2.0 Client Secret from Google Cloud Console</p>
         <?php
+    }
+
+    public function render_oauth_status_field()
+    {
+        $authorized = get_option('antigravity_gcal_oauth_authorized', false);
+        $client_id = get_option('antigravity_gcal_oauth_client_id', '');
+        $client_secret = get_option('antigravity_gcal_oauth_client_secret', '');
+        
+        if ($authorized) {
+            $expires_at = get_option('antigravity_gcal_oauth_expires_at', 0);
+            $expires_in = $expires_at - time();
+            ?>
+            <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+                <p style="margin: 0; color: #155724;">
+                    <span class="dashicons dashicons-yes-alt" style="color: #28a745;"></span>
+                    <strong>Connected to Google Calendar</strong>
+                </p>
+                <p style="margin: 10px 0 0 0; font-size: 12px; color: #155724;">
+                    Token expires in <?php echo human_time_diff(time(), $expires_at); ?>
+                </p>
+            </div>
+            <p>
+                <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display: inline;">
+                    <input type="hidden" name="action" value="disconnect_google_oauth">
+                    <?php wp_nonce_field('disconnect_google_oauth'); ?>
+                    <button type="submit" class="button"
+                            onclick="return confirm('Are you sure you want to disconnect Google Calendar? You will need to re-authorize.');">
+                        Disconnect Google Calendar
+                    </button>
+                </form>
+            </p>
+            <?php
+        } elseif ($client_id && $client_secret) {
+            // Create OAuth instance to get auth URL
+            $oauth = new Antigravity_Booking_Google_OAuth();
+            $auth_url = $oauth->get_auth_url();
+            ?>
+            <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+                <p style="margin: 0; color: #856404;">
+                    <span class="dashicons dashicons-warning" style="color: #ffc107;"></span>
+                    <strong>Not Connected</strong>
+                </p>
+                <p style="margin: 10px 0 0 0;">Click the button below to authorize this plugin to access your Google Calendar.</p>
+            </div>
+            <p>
+                <a href="<?php echo esc_url($auth_url); ?>" class="button button-primary button-large">
+                    <span class="dashicons dashicons-google" style="margin-top: 3px;"></span>
+                    Authorize with Google
+                </a>
+            </p>
+            <?php
+        } else {
+            ?>
+            <div style="padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+                <p style="margin: 0; color: #721c24;">
+                    <span class="dashicons dashicons-info" style="color: #dc3545;"></span>
+                    <strong>Configuration Required</strong>
+                </p>
+                <p style="margin: 10px 0 0 0;">Enter your OAuth Client ID and Client Secret above, then save settings to enable authorization.</p>
+            </div>
+            <?php
+        }
+        
+        // Show OAuth success/error messages
+        if (isset($_GET['oauth_success'])) {
+            ?>
+            <div class="notice notice-success" style="margin-top: 10px;">
+                <p><strong>Success!</strong> Google Calendar has been authorized successfully.</p>
+            </div>
+            <?php
+        }
+        
+        if (isset($_GET['oauth_error'])) {
+            $error = sanitize_text_field($_GET['oauth_error']);
+            ?>
+            <div class="notice notice-error" style="margin-top: 10px;">
+                <p><strong>Authorization Error:</strong> <?php echo esc_html($error); ?></p>
+            </div>
+            <?php
+        }
+        
+        if (isset($_GET['oauth_disconnected'])) {
+            ?>
+            <div class="notice notice-info" style="margin-top: 10px;">
+                <p>Google Calendar has been disconnected.</p>
+            </div>
+            <?php
+        }
     }
 
     public function render_calendar_id_field()
@@ -960,6 +1097,125 @@ class Antigravity_Booking_Settings
         <?php
     }
 
+    public function render_overnight_times_field() {
+        $value = get_option('antigravity_booking_overnight_times', array(
+            'monday' => array('start' => '22:00', 'end' => '10:00'),
+            'tuesday' => array('start' => '22:00', 'end' => '10:00'),
+            'wednesday' => array('start' => '22:00', 'end' => '10:00'),
+            'thursday' => array('start' => '22:00', 'end' => '10:00'),
+            'friday' => array('start' => '22:00', 'end' => '10:00'),
+            'saturday' => array('start' => '22:00', 'end' => '10:00'),
+            'sunday' => array('start' => '22:00', 'end' => '10:00'),
+        ));
+        
+        $days = array(
+            'monday' => 'Monday',
+            'tuesday' => 'Tuesday',
+            'wednesday' => 'Wednesday',
+            'thursday' => 'Thursday',
+            'friday' => 'Friday',
+            'saturday' => 'Saturday',
+            'sunday' => 'Sunday'
+        );
+        ?>
+        <p class="description">Configure different overnight times for each day of the week. Start time is when overnight pricing begins, end time is when it ends the next morning.</p>
+        <table class="widefat" style="max-width: 600px; margin-top: 10px;">
+            <thead>
+                <tr>
+                    <th>Day</th>
+                    <th>Start Time (Evening)</th>
+                    <th>End Time (Next Morning)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($days as $day_key => $day_label): ?>
+                    <tr>
+                        <td><strong><?php echo esc_html($day_label); ?></strong></td>
+                        <td>
+                            <input type="time"
+                                   name="antigravity_booking_overnight_times[<?php echo esc_attr($day_key); ?>][start]"
+                                   value="<?php echo esc_attr($value[$day_key]['start'] ?? '22:00'); ?>"
+                                   style="width: 120px;">
+                        </td>
+                        <td>
+                            <input type="time"
+                                   name="antigravity_booking_overnight_times[<?php echo esc_attr($day_key); ?>][end]"
+                                   value="<?php echo esc_attr($value[$day_key]['end'] ?? '10:00'); ?>"
+                                   style="width: 120px;">
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+
+    public function render_special_hours_field() {
+        $value = get_option('antigravity_booking_special_hours', array());
+        ?>
+        <p class="description">Override overnight times for specific dates (e.g., holidays). These take priority over day-specific times.</p>
+        <div id="special-hours-container">
+            <table class="widefat" style="max-width: 700px; margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="special-hours-list">
+                    <?php if (!empty($value)): ?>
+                        <?php foreach ($value as $date => $times): ?>
+                            <tr class="special-hour-row">
+                                <td>
+                                    <input type="date"
+                                           name="antigravity_booking_special_hours_dates[]"
+                                           value="<?php echo esc_attr($date); ?>"
+                                           style="width: 150px;">
+                                </td>
+                                <td>
+                                    <input type="time"
+                                           name="antigravity_booking_special_hours_start[]"
+                                           value="<?php echo esc_attr($times['start'] ?? '22:00'); ?>"
+                                           style="width: 120px;">
+                                </td>
+                                <td>
+                                    <input type="time"
+                                           name="antigravity_booking_special_hours_end[]"
+                                           value="<?php echo esc_attr($times['end'] ?? '10:00'); ?>"
+                                           style="width: 120px;">
+                                </td>
+                                <td>
+                                    <button type="button" class="button remove-special-hour">Remove</button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+            <button type="button" class="button" id="add-special-hour" style="margin-top: 10px;">+ Add Special Date</button>
+        </div>
+        <script>
+        jQuery(document).ready(function($) {
+            $('#add-special-hour').on('click', function() {
+                const row = $('<tr class="special-hour-row">' +
+                    '<td><input type="date" name="antigravity_booking_special_hours_dates[]" style="width: 150px;"></td>' +
+                    '<td><input type="time" name="antigravity_booking_special_hours_start[]" value="22:00" style="width: 120px;"></td>' +
+                    '<td><input type="time" name="antigravity_booking_special_hours_end[]" value="10:00" style="width: 120px;"></td>' +
+                    '<td><button type="button" class="button remove-special-hour">Remove</button></td>' +
+                    '</tr>');
+                $('#special-hours-list').append(row);
+            });
+            
+            $(document).on('click', '.remove-special-hour', function() {
+                $(this).closest('tr').remove();
+            });
+        });
+        </script>
+        <?php
+    }
+
     // Sanitization callbacks
     public function sanitize_checkbox($value) {
         return $value ? 1 : 0;
@@ -989,6 +1245,53 @@ class Antigravity_Booking_Settings
         }
 
         return $sanitized;
+    }
+
+    public function sanitize_overnight_times($value) {
+        if (!is_array($value)) {
+            return array();
+        }
+
+        $sanitized = array();
+        $days = array('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
+
+        foreach ($days as $day) {
+            if (isset($value[$day]) && is_array($value[$day])) {
+                $sanitized[$day] = array(
+                    'start' => isset($value[$day]['start']) ? sanitize_text_field($value[$day]['start']) : '22:00',
+                    'end' => isset($value[$day]['end']) ? sanitize_text_field($value[$day]['end']) : '10:00',
+                );
+            } else {
+                $sanitized[$day] = array('start' => '22:00', 'end' => '10:00');
+            }
+        }
+
+        return $sanitized;
+    }
+
+    public function sanitize_special_hours($value) {
+        // Special hours come in as separate arrays from the form
+        if (isset($_POST['antigravity_booking_special_hours_dates'])) {
+            $dates = $_POST['antigravity_booking_special_hours_dates'];
+            $starts = $_POST['antigravity_booking_special_hours_start'];
+            $ends = $_POST['antigravity_booking_special_hours_end'];
+            
+            $sanitized = array();
+            
+            for ($i = 0; $i < count($dates); $i++) {
+                $date = sanitize_text_field($dates[$i]);
+                if (!empty($date)) {
+                    $sanitized[$date] = array(
+                        'start' => isset($starts[$i]) ? sanitize_text_field($starts[$i]) : '22:00',
+                        'end' => isset($ends[$i]) ? sanitize_text_field($ends[$i]) : '10:00',
+                    );
+                }
+            }
+            
+            return $sanitized;
+        }
+        
+        return is_array($value) ? $value : array();
     }
     public function render_admin_subject_field()
     {

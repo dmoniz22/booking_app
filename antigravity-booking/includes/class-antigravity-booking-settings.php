@@ -670,14 +670,16 @@ class Antigravity_Booking_Settings
 
     public function render_gcal_section()
     {
+        $redirect_uri = site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1');
         echo '<p>Connect your Google Calendar using OAuth 2.0 for secure, easy authentication. No JSON files needed!</p>';
         echo '<p><strong>Setup Steps:</strong></p>';
         echo '<ol>';
         echo '<li>Create OAuth 2.0 credentials in <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>';
-        echo '<li>Add redirect URI: <code>' . admin_url('admin.php?page=antigravity-oauth-callback') . '</code></li>';
+        echo '<li>Add this redirect URI to your OAuth client: <br><code style="background: #f0f0f1; padding: 5px; display: inline-block; margin-top: 5px;">' . esc_html($redirect_uri) . '</code></li>';
         echo '<li>Enter Client ID and Secret below</li>';
         echo '<li>Save settings, then click "Authorize with Google"</li>';
         echo '</ol>';
+        echo '<p><strong>Important:</strong> The redirect URI must match EXACTLY in Google Cloud Console (including https://).</p>';
     }
 
     public function render_customer_email_section()
@@ -794,6 +796,15 @@ class Antigravity_Booking_Settings
                     Authorize with Google
                 </a>
             </p>
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; color: #666;">Debug Information (click to expand)</summary>
+                <div style="background: #f0f0f1; padding: 10px; margin-top: 5px; font-family: monospace; font-size: 11px;">
+                    <p><strong>Client ID (first 30 chars):</strong> <?php echo esc_html(substr($client_id, 0, 30)); ?>...</p>
+                    <p><strong>Client ID Length:</strong> <?php echo strlen($client_id); ?> characters</p>
+                    <p><strong>Redirect URI:</strong> <?php echo esc_html(site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1')); ?></p>
+                    <p><strong>Auth URL (first 150 chars):</strong><br><?php echo esc_html(substr($auth_url, 0, 150)); ?>...</p>
+                </div>
+            </details>
             <?php
         } else {
             ?>

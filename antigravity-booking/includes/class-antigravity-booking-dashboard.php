@@ -12,6 +12,10 @@ class Antigravity_Booking_Dashboard
         add_action('admin_post_change_booking_status', array($this, 'handle_status_change'));
         add_action('admin_post_bulk_booking_action', array($this, 'handle_bulk_action'));
         add_action('admin_post_export_bookings_csv', array($this, 'export_csv'));
+        
+        // AJAX handlers for inline editing
+        add_action('wp_ajax_update_booking_inline', array($this, 'ajax_update_booking_inline'));
+        add_action('wp_ajax_update_checklist_item', array($this, 'ajax_update_checklist_item'));
     }
 
     /**
@@ -101,7 +105,7 @@ class Antigravity_Booking_Dashboard
         if ($status_filter !== 'all') {
             $args['post_status'] = $status_filter;
         } else {
-            $args['post_status'] = array('pending_review', 'approved', 'draft', 'expired');
+            $args['post_status'] = array('pending_review', 'approved', 'draft', 'expired', 'publish');
         }
 
         if (!empty($search)) {
@@ -281,6 +285,115 @@ class Antigravity_Booking_Dashboard
                 document.getElementById('bulk-action-selector-bottom')?.addEventListener('change', function () {
                     document.getElementById('bulk-action-selector-top').value = this.value;
                 });
+
+                // Expandable dashboard functionality
+                jQuery(document).ready(function($) {
+                    // Toggle booking details
+                    $(document).on('click', '.toggle-details', function() {
+                        const bookingId = $(this).data('booking-id');
+                        const detailsRow = $('#details-' + bookingId);
+                        const icon = $(this).find('.dashicons');
+                        
+                        if (detailsRow.is(':visible')) {
+                            detailsRow.hide();
+                            icon.removeClass('dashicons-arrow-down').addClass('dashicons-arrow-right');
+                        } else {
+                            // Hide all other expanded rows
+                            $('.booking-details').hide();
+                            $('.toggle-details .dashicons').removeClass('dashicons-arrow-down').addClass('dashicons-arrow-right');
+                            
+                            // Show this row
+                            detailsRow.show();
+                            icon.removeClass('dashicons-arrow-right').addClass('dashicons-arrow-down');
+                        }
+                    });
+
+                    // Update booking via AJAX
+                    $(document).on('click', '.update-booking', function() {
+                        const bookingId = $(this).data('booking-id');
+                        const statusSpan = $('#update-status-' + bookingId);
+                        const button = $(this);
+                        
+                        // Gather form data
+                        const data = {
+                            action: 'update_booking_inline',
+                            booking_id: bookingId,
+                            customer_name: $('#customer_name_' + bookingId).val(),
+                            customer_email: $('#customer_email_' + bookingId).val(),
+                            customer_phone: $('#customer_phone_' + bookingId).val(),
+                            booking_start: $('#booking_start_' + bookingId).val(),
+                            booking_end: $('#booking_end_' + bookingId).val(),
+                            guest_count: $('#guest_count_' + bookingId).val(),
+                            event_description: $('#event_description_' + bookingId).val(),
+                            booking_status: $('#booking_status_' + bookingId).val(),
+                            nonce: '<?php echo wp_create_nonce("update_booking_inline"); ?>'
+                        };
+                        
+                        // Disable button
+                        button.prop('disabled', true).text('Updating...');
+                        statusSpan.text('Saving...').css('color', 'orange');
+                        
+                        // Send AJAX request
+                        $.post(ajaxurl, data, function(response) {
+                            button.prop('disabled', false).text('Update Booking');
+                            
+                            if (response.success) {
+                                statusSpan.text('✓ Saved successfully!').css('color', 'green');
+                                
+                                // Update the collapsed row using class selectors
+                                const row = $('tr[data-booking-id="' + bookingId + '"]');
+                                row.find('.customer-name-cell').html('<strong>' + data.customer_name + '</strong>');
+                                row.find('.status-cell').html('<span style="color: ' + response.data.status_color + ';">' + response.data.status_label + '</span>');
+                                
+                                // Update dates if provided in response
+                                if (response.data.start_date_formatted) {
+                                    row.find('.start-date-cell').text(response.data.start_date_formatted);
+                                }
+                                if (response.data.end_date_formatted) {
+                                    row.find('.end-date-cell').text(response.data.end_date_formatted);
+                                }
+                                
+                                // Clear message after 3 seconds
+                                setTimeout(function() {
+                                    statusSpan.text('');
+                                }, 3000);
+                            } else {
+                                statusSpan.text('✗ Error: ' + response.data).css('color', 'red');
+                            }
+                        }).fail(function() {
+                            button.prop('disabled', false).text('Update Booking');
+                            statusSpan.text('✗ Update failed').css('color', 'red');
+                        });
+                    });
+
+                    // Checklist item change handler
+                    $(document).on('change', '.checklist-item', function() {
+                        const bookingId = $(this).data('booking-id');
+                        const item = $(this).data('item');
+                        const checked = $(this).is(':checked');
+                        
+                        // Update checklist via AJAX
+                        $.post(ajaxurl, {
+                            action: 'update_checklist_item',
+                            booking_id: bookingId,
+                            item: item,
+                            checked: checked ? 1 : 0,
+                            nonce: '<?php echo wp_create_nonce("update_checklist_item"); ?>'
+                        }, function(response) {
+                            if (response.success) {
+                                // Update progress bar in expanded view
+                                const progress = response.data.progress;
+                                $('#progress-bar-' + bookingId).css('width', progress + '%');
+                                $('#progress-text-' + bookingId).text(progress + '%');
+                                
+                                // Update progress bar in collapsed row
+                                const row = $('tr[data-booking-id="' + bookingId + '"]');
+                                row.find('.progress-bar-mini').css('width', progress + '%');
+                                row.find('.progress-text-mini').text(progress + '%');
+                            }
+                        });
+                    });
+                });
             </script>
         </div>
         <?php
@@ -399,9 +512,10 @@ class Antigravity_Booking_Dashboard
                 </div>
             </div>
 
-            <table class="wp-list-table widefat fixed striped">
+            <table class="wp-list-table widefat fixed striped" id="bookings-table">
                 <thead>
                     <tr>
+                        <th style="width: 30px;"></th>
                         <th style="width: 40px;"><input type="checkbox" id="select-all-bookings"></th>
                         <th style="width: 50px;">ID</th>
                         <th class="sortable" style="cursor: pointer;">
@@ -409,16 +523,9 @@ class Antigravity_Booking_Dashboard
                                 Customer<?php echo $get_sort_indicator('customer_name'); ?>
                             </a>
                         </th>
-                        <th>Email</th>
                         <th class="sortable" style="cursor: pointer;">
                             <a href="<?php echo $get_sort_url('start_date'); ?>" style="text-decoration: none; color: inherit;">
-                                Start Date<?php echo $get_sort_indicator('start_date'); ?>
-                            </a>
-                        </th>
-                        <th>End Date</th>
-                        <th class="sortable" style="cursor: pointer;">
-                            <a href="<?php echo $get_sort_url('cost'); ?>" style="text-decoration: none; color: inherit;">
-                                Cost<?php echo $get_sort_indicator('cost'); ?>
+                                Date<?php echo $get_sort_indicator('start_date'); ?>
                             </a>
                         </th>
                         <th class="sortable" style="cursor: pointer;">
@@ -426,14 +533,13 @@ class Antigravity_Booking_Dashboard
                                 Status<?php echo $get_sort_indicator('status'); ?>
                             </a>
                         </th>
-                        <th>Progress</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($bookings)): ?>
                         <tr>
-                            <td colspan="10" style="text-align: center; padding: 40px;">
+                            <td colspan="7" style="text-align: center; padding: 40px;">
                                 <p style="color: #666;">No bookings found.</p>
                             </td>
                         </tr>
@@ -442,57 +548,237 @@ class Antigravity_Booking_Dashboard
                             <?php
                             $customer_name = get_post_meta($booking->ID, '_customer_name', true);
                             $customer_email = get_post_meta($booking->ID, '_customer_email', true);
+                            $customer_phone = get_post_meta($booking->ID, '_customer_phone', true);
                             $start = get_post_meta($booking->ID, '_booking_start_datetime', true);
                             $end = get_post_meta($booking->ID, '_booking_end_datetime', true);
                             $cost = get_post_meta($booking->ID, '_estimated_cost', true);
+                            $guest_count = get_post_meta($booking->ID, '_guest_count', true);
+                            $description = get_post_meta($booking->ID, '_event_description', true);
                             $status = get_post_status($booking->ID);
                             $progress = get_post_meta($booking->ID, '_checklist_progress', true) ?: 0;
+                            
+                            // Checklist items
+                            $checklist = array(
+                                'rental_agreement' => get_post_meta($booking->ID, '_checklist_rental_agreement', true),
+                                'deposit' => get_post_meta($booking->ID, '_checklist_deposit', true),
+                                'insurance' => get_post_meta($booking->ID, '_checklist_insurance', true),
+                                'key_arrangement' => get_post_meta($booking->ID, '_checklist_key_arrangement', true),
+                                'deposit_returned' => get_post_meta($booking->ID, '_checklist_deposit_returned', true),
+                            );
 
                             $status_labels = array(
-                                'pending_review' => '<span style="color: #d63638;">Pending Review</span>',
-                                'approved' => '<span style="color: #00a32a;">Approved</span>',
-                                'expired' => '<span style="color: #999;">Expired</span>',
-                                'cancelled' => '<span style="color: #d63638;">Cancelled</span>',
-                                'draft' => '<span style="color: #999;">Draft</span>',
+                                'pending_review' => 'Pending Review',
+                                'approved' => 'Approved',
+                                'expired' => 'Expired',
+                                'cancelled' => 'Cancelled',
+                                'draft' => 'Draft',
+                                'publish' => 'Published',
+                            );
+                            
+                            $status_colors = array(
+                                'pending_review' => '#d63638',
+                                'approved' => '#00a32a',
+                                'expired' => '#999',
+                                'cancelled' => '#d63638',
+                                'draft' => '#999',
+                                'publish' => '#00a32a',
                             );
                             ?>
-                            <tr>
+                            <!-- Collapsed Row -->
+                            <tr class="booking-row" data-booking-id="<?php echo $booking->ID; ?>">
+                                <td>
+                                    <button type="button" class="toggle-details" data-booking-id="<?php echo $booking->ID; ?>"
+                                            style="background: none; border: none; cursor: pointer; font-size: 16px;">
+                                        <span class="dashicons dashicons-arrow-right"></span>
+                                    </button>
+                                </td>
                                 <th scope="row"><input type="checkbox" name="booking_ids[]" value="<?php echo $booking->ID; ?>"
                                         class="booking-checkbox"></th>
-                                <td><?php echo $booking->ID; ?></td>
-                                <td><strong><?php echo esc_html($customer_name ?: 'N/A'); ?></strong></td>
-                                <td><?php echo esc_html($customer_email ?: 'N/A'); ?></td>
-                                <td><?php echo $start ? date('M j, Y g:i A', strtotime($start)) : 'N/A'; ?></td>
-                                <td><?php echo $end ? date('M j, Y g:i A', strtotime($end)) : 'N/A'; ?></td>
-                                <td><strong>$<?php echo number_format($cost, 2); ?></strong></td>
-                                <td><?php echo $status_labels[$status] ?? $status; ?></td>
-                                <td>
+                                <td><strong><?php echo $booking->ID; ?></strong></td>
+                                <td class="customer-name-cell"><strong><?php echo esc_html($customer_name ?: 'N/A'); ?></strong></td>
+                                <td class="start-date-cell"><?php echo $start ? date('M j, Y g:i A', strtotime($start)) : 'N/A'; ?></td>
+                                <td class="end-date-cell"><?php echo $end ? date('M j, Y g:i A', strtotime($end)) : 'N/A'; ?></td>
+                                <td class="status-cell">
+                                    <span style="color: <?php echo $status_colors[$status] ?? '#666'; ?>;">
+                                        <?php echo $status_labels[$status] ?? $status; ?>
+                                    </span>
+                                </td>
+                                <td class="progress-cell">
                                     <div style="display: flex; align-items: center; gap: 5px;">
                                         <div style="background: #f0f0f1; border-radius: 3px; height: 12px; width: 60px; overflow: hidden;">
-                                            <div style="background: #2271b1; height: 100%; width: <?php echo $progress; ?>%;"></div>
+                                            <div class="progress-bar-mini" style="background: #2271b1; height: 100%; width: <?php echo $progress; ?>%;"></div>
                                         </div>
-                                        <span style="font-size: 11px; color: #666;"><?php echo $progress; ?>%</span>
+                                        <span class="progress-text-mini" style="font-size: 11px; color: #666;"><?php echo $progress; ?>%</span>
                                     </div>
                                 </td>
                                 <td>
-                                    <a href="<?php echo admin_url("post.php?post={$booking->ID}&action=edit"); ?>"
-                                        class="button button-small">Edit</a>
-
-                                    <?php if ($status === 'pending_review'): ?>
-                                        <button type="button" class="button button-small button-primary"
-                                            onclick="quickApprove(<?php echo $booking->ID; ?>, '<?php echo wp_create_nonce('change_booking_status_' . $booking->ID); ?>')">Approve</button>
-                                    <?php endif; ?>
-
-                                    <?php if ($status === 'approved'): ?>
-                                        <span style="color: #00a32a;">✓ Confirmed</span>
-                                        <button type="button" class="button button-small"
-                                            onclick="quickCancel(<?php echo $booking->ID; ?>, '<?php echo wp_create_nonce('change_booking_status_' . $booking->ID); ?>')">Cancel</button>
-                                    <?php endif; ?>
-
-                                    <?php if ($status === 'pending_review'): ?>
-                                        <button type="button" class="button button-small"
-                                            onclick="quickCancel(<?php echo $booking->ID; ?>, '<?php echo wp_create_nonce('change_booking_status_' . $booking->ID); ?>')">Cancel</button>
-                                    <?php endif; ?>
+                                    <button type="button" class="button button-small toggle-details" data-booking-id="<?php echo $booking->ID; ?>">
+                                        View Details
+                                    </button>
+                                </td>
+                            </tr>
+                            
+                            <!-- Expanded Details Row (Hidden by default) -->
+                            <tr class="booking-details" id="details-<?php echo $booking->ID; ?>" style="display: none;">
+                                <td colspan="7" style="padding: 20px; background: #f9f9f9;">
+                                    <div class="booking-details-container">
+                                        <h3 style="margin-top: 0;">Booking #<?php echo $booking->ID; ?> - <?php echo esc_html($customer_name); ?></h3>
+                                        
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                            <!-- Left Column: Booking Details -->
+                                            <div>
+                                                <h4>Booking Information</h4>
+                                                <table class="form-table">
+                                                    <tr>
+                                                        <th>Customer Name:</th>
+                                                        <td>
+                                                            <input type="text" class="regular-text"
+                                                                   id="customer_name_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($customer_name); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Email:</th>
+                                                        <td>
+                                                            <input type="email" class="regular-text"
+                                                                   id="customer_email_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($customer_email); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Phone:</th>
+                                                        <td>
+                                                            <input type="tel" class="regular-text"
+                                                                   id="customer_phone_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($customer_phone); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Start Date/Time:</th>
+                                                        <td>
+                                                            <input type="datetime-local" class="regular-text"
+                                                                   id="booking_start_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($start); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>End Date/Time:</th>
+                                                        <td>
+                                                            <input type="datetime-local" class="regular-text"
+                                                                   id="booking_end_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($end); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Guest Count:</th>
+                                                        <td>
+                                                            <input type="number" class="small-text" min="1"
+                                                                   id="guest_count_<?php echo $booking->ID; ?>"
+                                                                   value="<?php echo esc_attr($guest_count); ?>">
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Description:</th>
+                                                        <td>
+                                                            <textarea class="large-text" rows="3"
+                                                                      id="event_description_<?php echo $booking->ID; ?>"><?php echo esc_textarea($description); ?></textarea>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Estimated Cost:</th>
+                                                        <td><strong>$<?php echo number_format($cost, 2); ?></strong></td>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Status:</th>
+                                                        <td>
+                                                            <select id="booking_status_<?php echo $booking->ID; ?>" class="regular-text">
+                                                                <option value="pending_review" <?php selected($status, 'pending_review'); ?>>Pending Review</option>
+                                                                <option value="approved" <?php selected($status, 'approved'); ?>>Approved</option>
+                                                                <option value="expired" <?php selected($status, 'expired'); ?>>Expired</option>
+                                                                <option value="cancelled" <?php selected($status, 'cancelled'); ?>>Cancelled</option>
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                            
+                                            <!-- Right Column: Checklist -->
+                                            <div>
+                                                <h4>Approval Checklist</h4>
+                                                <div style="background: white; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
+                                                    <div class="checklist-progress" style="margin-bottom: 15px;">
+                                                        <div style="background: #f0f0f1; border-radius: 3px; height: 20px; overflow: hidden;">
+                                                            <div id="progress-bar-<?php echo $booking->ID; ?>"
+                                                                 style="background: #2271b1; height: 100%; width: <?php echo $progress; ?>%; transition: width 0.3s;"></div>
+                                                        </div>
+                                                        <p style="margin: 5px 0; text-align: center; font-weight: bold;">
+                                                            Progress: <span id="progress-text-<?php echo $booking->ID; ?>"><?php echo $progress; ?>%</span>
+                                                        </p>
+                                                    </div>
+                                                    
+                                                    <p>
+                                                        <label>
+                                                            <input type="checkbox" class="checklist-item"
+                                                                   data-booking-id="<?php echo $booking->ID; ?>"
+                                                                   data-item="rental_agreement"
+                                                                   <?php checked($checklist['rental_agreement'], '1'); ?>>
+                                                            Rental Agreement
+                                                        </label>
+                                                    </p>
+                                                    <p>
+                                                        <label>
+                                                            <input type="checkbox" class="checklist-item"
+                                                                   data-booking-id="<?php echo $booking->ID; ?>"
+                                                                   data-item="deposit"
+                                                                   <?php checked($checklist['deposit'], '1'); ?>>
+                                                            Deposit Received
+                                                        </label>
+                                                    </p>
+                                                    <p>
+                                                        <label>
+                                                            <input type="checkbox" class="checklist-item"
+                                                                   data-booking-id="<?php echo $booking->ID; ?>"
+                                                                   data-item="insurance"
+                                                                   <?php checked($checklist['insurance'], '1'); ?>>
+                                                            Certificate of Insurance
+                                                        </label>
+                                                    </p>
+                                                    <p>
+                                                        <label>
+                                                            <input type="checkbox" class="checklist-item"
+                                                                   data-booking-id="<?php echo $booking->ID; ?>"
+                                                                   data-item="key_arrangement"
+                                                                   <?php checked($checklist['key_arrangement'], '1'); ?>>
+                                                            Key Arrangement
+                                                        </label>
+                                                    </p>
+                                                    <p>
+                                                        <label>
+                                                            <input type="checkbox" class="checklist-item"
+                                                                   data-booking-id="<?php echo $booking->ID; ?>"
+                                                                   data-item="deposit_returned"
+                                                                   <?php checked($checklist['deposit_returned'], '1'); ?>>
+                                                            Deposit Returned
+                                                        </label>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Action Buttons -->
+                                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                            <button type="button" class="button button-primary button-large update-booking"
+                                                    data-booking-id="<?php echo $booking->ID; ?>">
+                                                Update Booking
+                                            </button>
+                                            <button type="button" class="button button-large toggle-details"
+                                                    data-booking-id="<?php echo $booking->ID; ?>">
+                                                Close
+                                            </button>
+                                            <span class="update-status" id="update-status-<?php echo $booking->ID; ?>"
+                                                  style="margin-left: 15px; font-weight: bold;"></span>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -851,5 +1137,154 @@ class Antigravity_Booking_Dashboard
 
         fclose($output);
         exit;
+    }
+
+    /**
+     * AJAX: Update booking inline
+     */
+    public function ajax_update_booking_inline()
+    {
+        check_ajax_referer('update_booking_inline', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        $booking_id = isset($_POST['booking_id']) ? intval($_POST['booking_id']) : 0;
+
+        if (!$booking_id || get_post_type($booking_id) !== 'booking') {
+            wp_send_json_error('Invalid booking ID');
+        }
+
+        // Update post meta
+        if (isset($_POST['customer_name'])) {
+            update_post_meta($booking_id, '_customer_name', sanitize_text_field($_POST['customer_name']));
+        }
+
+        if (isset($_POST['customer_email'])) {
+            update_post_meta($booking_id, '_customer_email', sanitize_email($_POST['customer_email']));
+        }
+
+        if (isset($_POST['customer_phone'])) {
+            update_post_meta($booking_id, '_customer_phone', sanitize_text_field($_POST['customer_phone']));
+        }
+
+        if (isset($_POST['booking_start'])) {
+            update_post_meta($booking_id, '_booking_start_datetime', sanitize_text_field($_POST['booking_start']));
+        }
+
+        if (isset($_POST['booking_end'])) {
+            $end = sanitize_text_field($_POST['booking_end']);
+            $start = sanitize_text_field($_POST['booking_start']);
+
+            // Check if overnight
+            $is_overnight = Antigravity_Booking_Availability::is_overnight_booking($start);
+            if ($is_overnight) {
+                $end = Antigravity_Booking_Availability::get_overnight_end($start);
+            }
+
+            update_post_meta($booking_id, '_booking_end_datetime', $end);
+            update_post_meta($booking_id, '_is_overnight', $is_overnight);
+        }
+
+        if (isset($_POST['guest_count'])) {
+            update_post_meta($booking_id, '_guest_count', intval($_POST['guest_count']));
+        }
+
+        if (isset($_POST['event_description'])) {
+            update_post_meta($booking_id, '_event_description', sanitize_textarea_field($_POST['event_description']));
+        }
+
+        // Update booking status
+        if (isset($_POST['booking_status'])) {
+            $new_status = sanitize_text_field($_POST['booking_status']);
+            wp_update_post(array(
+                'ID' => $booking_id,
+                'post_status' => $new_status,
+            ));
+        }
+
+        // Recalculate cost
+        $start_dt = new DateTime(get_post_meta($booking_id, '_booking_start_datetime', true));
+        $end_dt = new DateTime(get_post_meta($booking_id, '_booking_end_datetime', true));
+        $diff = $start_dt->diff($end_dt);
+        $hours = ($diff->days * 24) + $diff->h + ($diff->i / 60);
+        $hourly_rate = get_option('antigravity_booking_hourly_rate', 100);
+        $cost = round($hours * $hourly_rate, 2);
+        update_post_meta($booking_id, '_estimated_cost', $cost);
+
+        // Get status info for response
+        $status = get_post_status($booking_id);
+        $status_labels = array(
+            'pending_review' => 'Pending Review',
+            'approved' => 'Approved',
+            'expired' => 'Expired',
+            'cancelled' => 'Cancelled',
+        );
+        $status_colors = array(
+            'pending_review' => '#d63638',
+            'approved' => '#00a32a',
+            'expired' => '#999',
+            'cancelled' => '#d63638',
+        );
+
+        // Get updated dates for display
+        $start_formatted = get_post_meta($booking_id, '_booking_start_datetime', true);
+        $end_formatted = get_post_meta($booking_id, '_booking_end_datetime', true);
+
+        wp_send_json_success(array(
+            'message' => 'Booking updated successfully',
+            'status_label' => $status_labels[$status] ?? $status,
+            'status_color' => $status_colors[$status] ?? '#666',
+            'start_date_formatted' => $start_formatted ? date('M j, Y g:i A', strtotime($start_formatted)) : 'N/A',
+            'end_date_formatted' => $end_formatted ? date('M j, Y g:i A', strtotime($end_formatted)) : 'N/A',
+        ));
+    }
+
+    /**
+     * AJAX: Update single checklist item
+     */
+    public function ajax_update_checklist_item()
+    {
+        check_ajax_referer('update_checklist_item', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        $booking_id = isset($_POST['booking_id']) ? intval($_POST['booking_id']) : 0;
+        $item = isset($_POST['item']) ? sanitize_text_field($_POST['item']) : '';
+        $checked = isset($_POST['checked']) ? intval($_POST['checked']) : 0;
+
+        if (!$booking_id || get_post_type($booking_id) !== 'booking') {
+            wp_send_json_error('Invalid booking ID');
+        }
+
+        // Update checklist item
+        update_post_meta($booking_id, '_checklist_' . $item, $checked);
+
+        // Recalculate progress
+        $items = array(
+            '_checklist_rental_agreement',
+            '_checklist_deposit',
+            '_checklist_insurance',
+            '_checklist_key_arrangement',
+            '_checklist_deposit_returned'
+        );
+        
+        $completed = 0;
+        foreach ($items as $meta_key) {
+            if (get_post_meta($booking_id, $meta_key, true)) {
+                $completed++;
+            }
+        }
+        
+        $progress = round(($completed / count($items)) * 100);
+        update_post_meta($booking_id, '_checklist_progress', $progress);
+
+        wp_send_json_success(array(
+            'progress' => $progress,
+            'message' => 'Checklist updated',
+        ));
     }
 }

@@ -10,9 +10,16 @@ class Antigravity_Booking_Google_OAuth
     private $redirect_uri;
     
     public function __construct() {
-        $this->client_id = get_option('antigravity_gcal_oauth_client_id');
-        $this->client_secret = get_option('antigravity_gcal_oauth_client_secret');
-        $this->redirect_uri = admin_url('admin.php?page=antigravity-oauth-callback');
+        // Trim credentials to remove any whitespace
+        $this->client_id = trim(get_option('antigravity_gcal_oauth_client_id', ''));
+        $this->client_secret = trim(get_option('antigravity_gcal_oauth_client_secret', ''));
+        $this->redirect_uri = site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1');
+        
+        // Log for debugging (remove in production)
+        if (!empty($this->client_id)) {
+            error_log('OAuth Client ID (first 20 chars): ' . substr($this->client_id, 0, 20) . '...');
+            error_log('OAuth Redirect URI: ' . $this->redirect_uri);
+        }
         
         add_action('admin_init', array($this, 'handle_oauth_callback'));
         add_action('admin_post_disconnect_google_oauth', array($this, 'handle_disconnect'));
@@ -22,13 +29,18 @@ class Antigravity_Booking_Google_OAuth
      * Get authorization URL
      */
     public function get_auth_url() {
-        if (empty($this->client_id)) {
+        // Get fresh credentials from database (in case they were just saved)
+        $client_id = trim(get_option('antigravity_gcal_oauth_client_id', ''));
+        
+        if (empty($client_id)) {
             return '';
         }
         
+        $redirect_uri = site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1');
+        
         $params = array(
-            'client_id' => $this->client_id,
-            'redirect_uri' => $this->redirect_uri,
+            'client_id' => $client_id,
+            'redirect_uri' => $redirect_uri,
             'response_type' => 'code',
             'scope' => 'https://www.googleapis.com/auth/calendar',
             'access_type' => 'offline',
@@ -36,14 +48,20 @@ class Antigravity_Booking_Google_OAuth
             'state' => wp_create_nonce('antigravity_oauth_state'),
         );
         
-        return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+        // Log the auth URL for debugging
+        $auth_url = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+        error_log('OAuth Auth URL: ' . $auth_url);
+        error_log('OAuth Client ID being used: ' . substr($client_id, 0, 20) . '... (length: ' . strlen($client_id) . ')');
+        
+        return $auth_url;
     }
     
     /**
      * Handle OAuth callback
      */
     public function handle_oauth_callback() {
-        if (!isset($_GET['page']) || $_GET['page'] !== 'antigravity-oauth-callback') {
+        // Check if this is an OAuth callback
+        if (!isset($_GET['oauth_callback']) || !isset($_GET['page']) || $_GET['page'] !== 'antigravity-booking-settings') {
             return;
         }
         

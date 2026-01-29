@@ -13,6 +13,8 @@ class Antigravity_Booking_CPT
 		add_action('save_post_booking', array($this, 'save_booking_meta'), 10, 2);
 		add_action('admin_notices', array($this, 'display_booking_notices'));
 		add_filter('post_updated_messages', array($this, 'booking_updated_messages'));
+		add_action('post_submitbox_misc_actions', array($this, 'add_status_selector'));
+		add_filter('wp_insert_post_data', array($this, 'force_custom_status'), 10, 2);
 	}
 
 	/**
@@ -470,5 +472,69 @@ class Antigravity_Booking_CPT
 		);
 		
 		return $messages;
+	}
+
+	/**
+	 * Add custom status selector to publish box
+	 */
+	public function add_status_selector()
+	{
+		global $post;
+		
+		if ($post->post_type !== 'booking') {
+			return;
+		}
+		
+		$current_status = get_post_status($post->ID);
+		
+		// If it's a default WordPress status, convert to pending_review
+		if (in_array($current_status, array('publish', 'draft', 'auto-draft'))) {
+			$current_status = 'pending_review';
+		}
+		
+		?>
+		<div class="misc-pub-section">
+			<label for="booking_status"><strong>Booking Status:</strong></label><br>
+			<select name="booking_status" id="booking_status" style="margin-top: 5px; width: 100%;">
+				<option value="pending_review" <?php selected($current_status, 'pending_review'); ?>>Pending Review</option>
+				<option value="approved" <?php selected($current_status, 'approved'); ?>>Approved</option>
+				<option value="expired" <?php selected($current_status, 'expired'); ?>>Expired</option>
+				<option value="cancelled" <?php selected($current_status, 'cancelled'); ?>>Cancelled</option>
+			</select>
+		</div>
+		<script>
+		jQuery(document).ready(function($) {
+			// Hide the default publish status
+			$('#post-status-display').parent().hide();
+			$('#post-visibility-display').parent().hide();
+		});
+		</script>
+		<?php
+	}
+
+	/**
+	 * Force bookings to use custom statuses instead of publish/draft
+	 */
+	public function force_custom_status($data, $postarr)
+	{
+		if ($data['post_type'] !== 'booking') {
+			return $data;
+		}
+		
+		// If a custom booking status was selected, use it
+		if (isset($_POST['booking_status']) && !empty($_POST['booking_status'])) {
+			$data['post_status'] = sanitize_text_field($_POST['booking_status']);
+		}
+		// If WordPress is trying to set to publish/draft, convert to pending_review
+		elseif (in_array($data['post_status'], array('publish', 'draft'))) {
+			// For new bookings or updates, default to pending_review
+			$data['post_status'] = 'pending_review';
+		}
+		// If it's auto-draft (new booking being created), set to pending_review
+		elseif ($data['post_status'] === 'auto-draft') {
+			$data['post_status'] = 'pending_review';
+		}
+		
+		return $data;
 	}
 }

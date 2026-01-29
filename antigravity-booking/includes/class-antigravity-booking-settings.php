@@ -273,7 +273,7 @@ class Antigravity_Booking_Settings
         );
         register_setting('antigravity_booking_settings', 'antigravity_gcal_oauth_client_secret', array(
             'type' => 'string',
-            'sanitize_callback' => 'sanitize_text_field',
+            'sanitize_callback' => 'trim', // Use trim only to preserve special chars in secret
         ));
 
         // OAuth Authorization Status
@@ -764,7 +764,7 @@ class Antigravity_Booking_Settings
                     <strong>Connected to Google Calendar</strong>
                 </p>
                 <p style="margin: 10px 0 0 0; font-size: 12px; color: #155724;">
-                    Token expires in <?php echo human_time_diff(time(), $expires_at); ?>
+                    Token expires in <?php echo human_time_diff(time(), $expires_at); ?> (Auto-refreshes in background)
                 </p>
             </div>
             <p>
@@ -801,6 +801,7 @@ class Antigravity_Booking_Settings
                 <div style="background: #f0f0f1; padding: 10px; margin-top: 5px; font-family: monospace; font-size: 11px;">
                     <p><strong>Client ID (first 30 chars):</strong> <?php echo esc_html(substr($client_id, 0, 30)); ?>...</p>
                     <p><strong>Client ID Length:</strong> <?php echo strlen($client_id); ?> characters</p>
+                    <p><strong>Client Secret Length:</strong> <?php echo strlen($client_secret); ?> characters (Verify this matches Google Console)</p>
                     <p><strong>Redirect URI:</strong> <?php echo esc_html(site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1')); ?></p>
                     <p><strong>Auth URL (first 150 chars):</strong><br><?php echo esc_html(substr($auth_url, 0, 150)); ?>...</p>
                 </div>

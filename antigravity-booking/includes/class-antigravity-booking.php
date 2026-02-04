@@ -6,6 +6,14 @@ class Antigravity_Booking
     protected $version;
     protected $cpt;
     protected $availability;
+    public $emails;
+    public $blackout;
+    public $google_oauth;
+    public $google_calendar;
+    public $shortcode;
+    public $api;
+    public $dashboard;
+    public $settings;
 
     public function __construct()
     {
@@ -40,7 +48,7 @@ class Antigravity_Booking
         $this->emails = new Antigravity_Booking_Emails();
         $this->blackout = new Antigravity_Booking_Blackout();
         $this->google_oauth = new Antigravity_Booking_Google_OAuth();
-        
+
         // Google Calendar Integration with OAuth
         $this->google_calendar = new Antigravity_Booking_Google_Calendar();
         $this->google_calendar->init(); // Initialize hooks

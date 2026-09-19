@@ -69,23 +69,22 @@ class Antigravity_Booking_API
     /**
      * Get client IP address
      *
+     * Only REMOTE_ADDR is trusted. Proxied headers (X-Forwarded-For etc.)
+     * are attacker-controlled on shared hosting and would let a visitor
+     * rotate the header to reset the rate-limit budget.
+     *
      * @return string Client IP address
      */
     private function get_client_ip()
     {
-        $ip_keys = array('HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR');
-        
-        foreach ($ip_keys as $key) {
-            if (!empty($_SERVER[$key])) {
-                $ips = explode(',', $_SERVER[$key]);
-                $ip = trim($ips[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    return $ip;
-                }
-            }
+        $remote = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+
+        // Normalize IPv6-mapped IPv4 (e.g. ::ffff:1.2.3.4)
+        if (strpos($remote, '::ffff:') === 0) {
+            $remote = substr($remote, 7);
         }
-        
-        return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        return $remote;
     }
     
     /**

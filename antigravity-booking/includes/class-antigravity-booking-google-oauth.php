@@ -18,7 +18,6 @@ class Antigravity_Booking_Google_OAuth
 
         // Log for debugging (remove in production)
         if (!empty($this->client_id)) {
-            error_log('OAuth Client ID (first 20 chars): ' . substr($this->client_id, 0, 20) . '...');
             error_log('OAuth Redirect URI: ' . $this->redirect_uri);
         }
 
@@ -50,10 +49,8 @@ class Antigravity_Booking_Google_OAuth
             'state' => wp_create_nonce('antigravity_oauth_state'),
         );
 
-        // Log the auth URL for debugging
+        // Redirect URI (no credentials logged)
         $auth_url = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
-        error_log('OAuth Auth URL: ' . $auth_url);
-        error_log('OAuth Client ID being used: ' . substr($client_id, 0, 20) . '... (length: ' . strlen($client_id) . ')');
 
         return $auth_url;
     }
@@ -86,7 +83,7 @@ class Antigravity_Booking_Google_OAuth
             $result = $this->exchange_code_for_tokens($code);
 
             if (is_array($result) && isset($result['access_token'])) {
-                update_option('antigravity_gcal_oauth_access_token', $result['access_token']);
+                update_option('antigravity_gcal_oauth_access_token', $this->encrypt_token($result['access_token']));
 
                 if (isset($result['refresh_token'])) {
                     update_option('antigravity_gcal_oauth_refresh_token', $this->encrypt_token($result['refresh_token']));
@@ -127,8 +124,6 @@ class Antigravity_Booking_Google_OAuth
             'grant_type' => 'authorization_code',
         );
 
-        error_log('OAuth Token Exchange Params: ' . print_r(array_merge($params, array('client_secret' => '***')), true));
-
         $response = wp_remote_post('https://oauth2.googleapis.com/token', array(
             'body' => $params,
             'timeout' => 30,
@@ -140,7 +135,6 @@ class Antigravity_Booking_Google_OAuth
         }
 
         $body_raw = wp_remote_retrieve_body($response);
-        error_log('OAuth Token Exchange Response: ' . $body_raw);
 
         $body = json_decode($body_raw, true);
 
@@ -182,7 +176,7 @@ class Antigravity_Booking_Google_OAuth
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         if (isset($body['access_token'])) {
-            update_option('antigravity_gcal_oauth_access_token', $body['access_token']);
+            update_option('antigravity_gcal_oauth_access_token', $this->encrypt_token($body['access_token']));
             $expires_at = time() + (isset($body['expires_in']) ? intval($body['expires_in']) : 3600);
             update_option('antigravity_gcal_oauth_expires_at', $expires_at);
             return true;
@@ -207,7 +201,8 @@ class Antigravity_Booking_Google_OAuth
             $this->refresh_access_token();
         }
 
-        return get_option('antigravity_gcal_oauth_access_token');
+        // Access token is stored encrypted since 1.3.0
+        return $this->decrypt_token(get_option('antigravity_gcal_oauth_access_token'));
     }
 
     /**
@@ -252,13 +247,18 @@ class Antigravity_Booking_Google_OAuth
     private function encrypt_token($token)
     {
         if (function_exists('openssl_encrypt')) {
-            $key = wp_salt('auth');
+            // Derive a stable 32-byte key from the WP auth key via HKDF.
+            // Using wp_salt('auth') raw can yield keys of unexpected lengths
+            // and depends on its exact byte length for AES-256.
+            $key = hash_hkdf('sha256', wp_salt('auth'), 32, 'antigravity-oauth-v1');
             $iv = openssl_random_pseudo_bytes(16);
             $encrypted = openssl_encrypt($token, 'AES-256-CBC', $key, 0, $iv);
-            return base64_encode($iv . $encrypted);
+            return 'antigravity1$' . base64_encode($iv . $encrypted);
         }
-        // Fallback (less secure but better than nothing)
-        return base64_encode($token);
+        // No openssl — fail closed instead of storing a trivially reversible
+        // base64 blob. Returning false prevents silent credential leakage;
+        // callers that cannot encrypt will surface an obvious error.
+        return false;
     }
 
     /**
@@ -270,9 +270,16 @@ class Antigravity_Booking_Google_OAuth
             return '';
         }
 
+        // Legacy plaintext tokens (pre-1.3.0) — decrypt_token will receive them
+        // only if they were never migrated. Detect the new format; anything else
+        // is treated as the old plaintext value.
+        if (strpos($encrypted_token, 'antigravity1$') !== 0) {
+            return $encrypted_token;
+        }
+
         if (function_exists('openssl_decrypt')) {
-            $key = wp_salt('auth');
-            $data = base64_decode($encrypted_token);
+            $key = hash_hkdf('sha256', wp_salt('auth'), 32, 'antigravity-oauth-v1');
+            $data = base64_decode(substr($encrypted_token, strlen('antigravity1$')));
             if ($data === false) {
                 return '';
             }
@@ -281,7 +288,6 @@ class Antigravity_Booking_Google_OAuth
             $decrypted = openssl_decrypt($encrypted, 'AES-256-CBC', $key, 0, $iv);
             return $decrypted !== false ? $decrypted : '';
         }
-        // Fallback
-        return base64_decode($encrypted_token);
+        return '';
     }
 }

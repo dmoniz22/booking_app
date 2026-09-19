@@ -55,7 +55,9 @@ class Antigravity_Booking_Google_Calendar
             $args['body'] = json_encode($body);
         }
 
-        error_log("Antigravity Booking: GCal API Request: $method $url");
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("Antigravity Booking: GCal API Request: $method $url");
+        }
 
         $response = wp_remote_request($url, $args);
 

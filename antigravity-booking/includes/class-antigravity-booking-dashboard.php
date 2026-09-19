@@ -342,7 +342,7 @@ class Antigravity_Booking_Dashboard
                                 
                                 // Update the collapsed row using class selectors
                                 const row = $('tr[data-booking-id="' + bookingId + '"]');
-                                row.find('.customer-name-cell').html('<strong>' + data.customer_name + '</strong>');
+                                row.find('.customer-name-cell').text(data.customer_name); // .text() — never inject via .html()
                                 row.find('.status-cell').html('<span style="color: ' + response.data.status_color + ';">' + response.data.status_label + '</span>');
                                 
                                 // Update dates if provided in response
@@ -1146,14 +1146,14 @@ class Antigravity_Booking_Dashboard
     {
         check_ajax_referer('update_booking_inline', 'nonce');
 
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error('Insufficient permissions');
-        }
-
         $booking_id = isset($_POST['booking_id']) ? intval($_POST['booking_id']) : 0;
 
         if (!$booking_id || get_post_type($booking_id) !== 'booking') {
             wp_send_json_error('Invalid booking ID');
+        }
+
+        if (!current_user_can('edit_post', $booking_id)) {
+            wp_send_json_error('Insufficient permissions');
         }
 
         // Update post meta
@@ -1248,10 +1248,6 @@ class Antigravity_Booking_Dashboard
     {
         check_ajax_referer('update_checklist_item', 'nonce');
 
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error('Insufficient permissions');
-        }
-
         $booking_id = isset($_POST['booking_id']) ? intval($_POST['booking_id']) : 0;
         $item = isset($_POST['item']) ? sanitize_text_field($_POST['item']) : '';
         $checked = isset($_POST['checked']) ? intval($_POST['checked']) : 0;
@@ -1260,8 +1256,25 @@ class Antigravity_Booking_Dashboard
             wp_send_json_error('Invalid booking ID');
         }
 
+        if (!current_user_can('edit_post', $booking_id)) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        // Whitelist checklist keys — never write arbitrary meta keys
+        $allowed_items = array(
+            '_checklist_rental_agreement',
+            '_checklist_deposit',
+            '_checklist_insurance',
+            '_checklist_key_arrangement',
+            '_checklist_deposit_returned'
+        );
+        $item = '_checklist_' . $item;
+        if (!in_array($item, $allowed_items, true)) {
+            wp_send_json_error('Invalid checklist item');
+        }
+
         // Update checklist item
-        update_post_meta($booking_id, '_checklist_' . $item, $checked);
+        update_post_meta($booking_id, $item, $checked);
 
         // Recalculate progress
         $items = array(

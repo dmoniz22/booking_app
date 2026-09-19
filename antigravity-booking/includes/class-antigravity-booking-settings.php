@@ -574,13 +574,10 @@ class Antigravity_Booking_Settings
                     <th>WP-Cron</th>
                     <td>
                         <?php
-                        $next_expiry = wp_next_scheduled('antigravity_check_expired_bookings');
                         $next_reminder = wp_next_scheduled('antigravity_send_reminders');
-                        if ($next_expiry || $next_reminder) {
+                        if ($next_reminder) {
                             echo '<span style="color: green;">✓ Scheduled</span>';
-                            if ($next_expiry) {
-                                echo '<br><small>Next expiry check: ' . date('Y-m-d H:i:s', $next_expiry) . '</small>';
-                            }
+                            echo '<br><small>Next reminder check: ' . date('Y-m-d H:i:s', $next_reminder) . '</small>';
                         } else {
                             echo '<span style="color: orange;">⚠ Not scheduled (will be scheduled on next page load)</span>';
                         }
@@ -796,16 +793,6 @@ class Antigravity_Booking_Settings
                     Authorize with Google
                 </a>
             </p>
-            <details style="margin-top: 10px;">
-                <summary style="cursor: pointer; color: #666;">Debug Information (click to expand)</summary>
-                <div style="background: #f0f0f1; padding: 10px; margin-top: 5px; font-family: monospace; font-size: 11px;">
-                    <p><strong>Client ID (first 30 chars):</strong> <?php echo esc_html(substr($client_id, 0, 30)); ?>...</p>
-                    <p><strong>Client ID Length:</strong> <?php echo strlen($client_id); ?> characters</p>
-                    <p><strong>Client Secret Length:</strong> <?php echo strlen($client_secret); ?> characters (Verify this matches Google Console)</p>
-                    <p><strong>Redirect URI:</strong> <?php echo esc_html(site_url('/wp-admin/admin.php?page=antigravity-booking-settings&oauth_callback=1')); ?></p>
-                    <p><strong>Auth URL (first 150 chars):</strong><br><?php echo esc_html(substr($auth_url, 0, 150)); ?>...</p>
-                </div>
-            </details>
             <?php
         } else {
             ?>

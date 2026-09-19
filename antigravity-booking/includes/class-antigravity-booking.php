@@ -18,7 +18,7 @@ class Antigravity_Booking
     public function __construct()
     {
         $this->plugin_name = 'antigravity-booking';
-        $this->version = '1.2.0';
+        $this->version = '1.3.0';
         $this->load_dependencies();
         $this->init_components();
         $this->define_admin_hooks();
@@ -72,16 +72,23 @@ class Antigravity_Booking
 
     private function define_public_hooks()
     {
-        // Public hooks - AJAX for availability check
-        add_action('wp_ajax_check_availability', array($this, 'ajax_check_availability'));
-        add_action('wp_ajax_nopriv_check_availability', array($this, 'ajax_check_availability'));
-
-        add_action('wp_ajax_get_calendar_events', array($this, 'ajax_get_calendar_events'));
-        add_action('wp_ajax_nopriv_get_calendar_events', array($this, 'ajax_get_calendar_events'));
+        // No public AJAX hooks are registered here.
+        // The front-end booking form uses the antigravity_get_availability and
+        // antigravity_create_booking endpoints defined in Antigravity_Booking_API
+        // (nonce-protected + rate limited). The legacy check_availability and
+        // get_calendar_events endpoints were dead code (the front-end JS never
+        // called them) and their backing method get_calendar_events() did not
+        // exist — removed in 1.3.0.
     }
 
     public function ajax_calculate_cost()
     {
+        check_ajax_referer('calculate_booking_cost', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
         $start = sanitize_text_field($_POST['start']);
         $end = sanitize_text_field($_POST['end']);
 
@@ -94,24 +101,6 @@ class Antigravity_Booking
         $cost = round($hours * $hourly_rate, 2);
 
         wp_send_json_success(array('cost' => $cost));
-    }
-
-    public function ajax_check_availability()
-    {
-        $start = sanitize_text_field($_POST['start']);
-        $end = sanitize_text_field($_POST['end']);
-
-        $result = $this->availability->check_availability($start, $end);
-        wp_send_json_success($result);
-    }
-
-    public function ajax_get_calendar_events()
-    {
-        $start = isset($_POST['start']) ? sanitize_text_field($_POST['start']) : null;
-        $end = isset($_POST['end']) ? sanitize_text_field($_POST['end']) : null;
-
-        $events = $this->availability->get_calendar_events($start, $end);
-        wp_send_json_success($events);
     }
 
     public function run()

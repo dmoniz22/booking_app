@@ -183,6 +183,7 @@ class Antigravity_Booking_CPT
 
 					$.post(ajaxurl, {
 						action: 'calculate_booking_cost',
+						nonce: '<?php echo esc_js(wp_create_nonce('calculate_booking_cost')); ?>',
 						start: start,
 						end: end
 					}, function (response) {
